@@ -1,0 +1,158 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vpn-config-backup
+  namespace: vpn-management
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: alpine/git:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              apk add --no-cache rsync openssh-client
+              
+              # Create backup directory
+              mkdir -p /backup/$(date +%Y-%m-%d)
+              
+              # Backup VPN configurations from all servers
+              for server in $(cat /etc/servers/server-list.txt); do
+                echo "Backing up $server..."
+                rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+                  root@$server:/etc/wireguard/ \
+                  /backup/$(date +%Y-%m-%d)/$server/wireguard/ || true
+                rsync -avz -e "ssh -o StrictHostKeyChecking=no" \
+                  root@$server:/etc/openvpn/ \
+                  /backup/$(date +%Y-%m-%d)/$server/openvpn/ || true
+              done
+              
+              # Compress backup
+              cd /backup
+              tar -czf vpn-backup-$(date +%Y-%m-%d).tar.gz $(date +%Y-%m-%d)/
+              
+              # Upload to S3 (if configured)
+              if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+                aws s3 cp vpn-backup-$(date +%Y-%m-%d).tar.gz s3://$S3_BUCKET/backups/
+              fi
+              
+              # Clean old backups (keep 7 days)
+              find /backup -name "vpn-backup-*.tar.gz" -mtime +7 -delete
+            env:
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: s3-bucket
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: aws-secret-access-key
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backup
+            - name: ssh-keys
+              mountPath: /root/.ssh
+              readOnly: true
+            - name: server-list
+              mountPath: /etc/servers
+              readOnly: true
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-storage
+          - name: ssh-keys
+            secret:
+              secretName: backup-ssh-keys
+              defaultMode: 0600
+          - name: server-list
+            configMap:
+              name: server-list
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-storage
+  namespace: vpn-management
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-secrets
+  namespace: vpn-management
+type: Opaque
+data:
+  s3-bucket: dnBuLWluZnJhc3RydWN0dXJlLWJhY2t1cHM=  # vpn-infrastructure-backups
+  aws-access-key-id: Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24=  # change-me-in-production
+  aws-secret-access-key: Y2hhbmdlLW1lLWluLXByb2R1Y3Rpb24=  # change-me-in-production
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: backup-ssh-keys
+  namespace: vpn-management
+type: Opaque
+data:
+  id_rsa: LS0tLS1CRUdJTiBPUEVOU1NIIFBSSVZBVEUgS0VZLS0tLS0=  # Base64 encoded SSH private key
+  id_rsa.pub: c3NoLXJzYSBBQUFBQjNOemFDMXljMkVBQUFBREFRQUJBQUFCZ1FE  # Base64 encoded SSH public key
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-list
+  namespace: vpn-management
+data:
+  server-list.txt: |
+    # Europe Region
+    185.199.108.153
+    185.199.109.154
+    185.199.110.155
+    185.199.111.156
+    185.199.112.157
+    185.199.113.158
+    185.199.114.159
+    185.199.115.160
+    185.199.116.161
+    185.199.117.162
+    185.199.118.163
+    185.199.119.164
+    # North America Region
+    192.241.128.100
+    192.241.129.101
+    192.241.130.102
+    192.241.131.103
+    192.241.132.104
+    192.241.133.105
+    192.241.134.106
+    192.241.135.107
+    192.241.136.108
+    192.241.137.109
+    # Asia Pacific Region
+    203.175.10.200
+    203.175.11.201
+    203.175.12.202
+    203.175.13.203
+    203.175.14.204
+    203.175.15.205
+    203.175.16.206
+    203.175.17.207

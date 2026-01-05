@@ -1,0 +1,111 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: vpn-infrastructure-k8s
+  annotations:
+    description: "Kubernetes manifests for VPN Infrastructure Management"
+
+# Namespaces
+resources:
+- namespaces/vpn-management.yaml
+
+# Monitoring Stack
+- monitoring/prometheus/prometheus-config.yaml
+- monitoring/prometheus/prometheus-deployment.yaml
+- monitoring/prometheus/prometheus-rules.yaml
+- monitoring/grafana/grafana-deployment.yaml
+- monitoring/grafana/grafana-dashboards.yaml
+
+# Logging Stack
+- logging/loki/loki-deployment.yaml
+
+# Alerting
+- alertmanager/alertmanager-deployment.yaml
+
+# VPN Management Services
+- vpn-management/wireguard-dashboard/wireguard-dashboard-deployment.yaml
+- vpn-management/vpn-config-api/vpn-config-api-deployment.yaml
+
+# Backup and Operations
+- backup/backup-job.yaml
+
+# Ingress and Certificates
+- ingress/nginx-ingress.yaml
+- cert-manager/cluster-issuer.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: vpn-infrastructure
+  app.kubernetes.io/version: "2.0.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Images to be used (can be overridden per environment)
+images:
+- name: prom/prometheus
+  newTag: v2.45.0
+- name: grafana/grafana
+  newTag: 10.1.0
+- name: grafana/loki
+  newTag: 2.9.0
+- name: prom/alertmanager
+  newTag: v0.26.0
+- name: donaldzou/wireguard-dashboard
+  newTag: v4.0
+
+# ConfigMap generator for environment-specific configs
+configMapGenerator:
+- name: environment-config
+  literals:
+  - ENVIRONMENT=production
+  - CLUSTER_NAME=vpn-infrastructure
+  - REGION=multi-region
+  - TOTAL_SERVERS=30
+
+# Secret generator (these should be overridden with actual secrets)
+secretGenerator:
+- name: common-secrets
+  literals:
+  - admin-password=change-me-in-production
+  - api-key=change-me-in-production
+
+# Patches for production environment
+patchesStrategicMerge:
+- |-
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: prometheus
+    namespace: monitoring
+  spec:
+    template:
+      spec:
+        containers:
+        - name: prometheus
+          resources:
+            requests:
+              cpu: 1
+              memory: 2Gi
+            limits:
+              cpu: 4
+              memory: 8Gi
+
+- |-
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: grafana
+    namespace: monitoring
+  spec:
+    template:
+      spec:
+        containers:
+        - name: grafana
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2
+              memory: 4Gi

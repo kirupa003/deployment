@@ -1,0 +1,371 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: monitoring
+data:
+  vpn-infrastructure-overview.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "VPN Infrastructure Overview",
+        "tags": ["vpn", "infrastructure", "overview"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "VPN Servers Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(up{job=~\"vpn-servers-.*\"} == 1)",
+                "legendFormat": "Online Servers"
+              },
+              {
+                "expr": "count(up{job=~\"vpn-servers-.*\"} == 0)",
+                "legendFormat": "Offline Servers"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 25},
+                    {"color": "green", "value": 28}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Regional Server Distribution",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "count by(region) (up{job=~\"vpn-servers-.*\"})",
+                "legendFormat": "{{region}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Active VPN Connections",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum by(region) (wireguard_peers)",
+                "legendFormat": "WireGuard - {{region}}"
+              },
+              {
+                "expr": "sum by(region) (openvpn_connected_clients)",
+                "legendFormat": "OpenVPN - {{region}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "System Resource Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "avg by(region) (100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))",
+                "legendFormat": "CPU Usage - {{region}}"
+              },
+              {
+                "expr": "avg by(region) ((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100)",
+                "legendFormat": "Memory Usage - {{region}}"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "max": 100, "min": 0}
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          },
+          {
+            "id": 5,
+            "title": "Network Traffic",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum by(region) (rate(node_network_receive_bytes_total[5m]))",
+                "legendFormat": "Inbound - {{region}}"
+              },
+              {
+                "expr": "sum by(region) (rate(node_network_transmit_bytes_total[5m]))",
+                "legendFormat": "Outbound - {{region}}"
+              }
+            ],
+            "yAxes": [
+              {"label": "Bytes/sec"}
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "30s"
+      }
+    }
+
+  wireguard-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "WireGuard VPN Monitoring",
+        "tags": ["wireguard", "vpn"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "WireGuard Servers Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(up{job=\"wireguard-exporter\"} == 1)",
+                "legendFormat": "Online"
+              },
+              {
+                "expr": "count(up{job=\"wireguard-exporter\"} == 0)",
+                "legendFormat": "Offline"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Total Active Connections",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(wireguard_peers)",
+                "legendFormat": "Connections"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Average Connections per Server",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "avg(wireguard_peers)",
+                "legendFormat": "Avg Connections"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0}
+          },
+          {
+            "id": 4,
+            "title": "WireGuard Connections by Region",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum by(region) (wireguard_peers)",
+                "legendFormat": "{{region}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+          },
+          {
+            "id": 5,
+            "title": "WireGuard Traffic by Server",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(wireguard_peer_rx_bytes[5m])",
+                "legendFormat": "RX - {{instance}}"
+              },
+              {
+                "expr": "rate(wireguard_peer_tx_bytes[5m])",
+                "legendFormat": "TX - {{instance}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+          },
+          {
+            "id": 6,
+            "title": "WireGuard Peer Handshakes",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "wireguard_peer_last_handshake_seconds",
+                "legendFormat": "Last Handshake - {{instance}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 14}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "30s"
+      }
+    }
+
+  openvpn-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "OpenVPN Monitoring",
+        "tags": ["openvpn", "vpn"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "OpenVPN Servers Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(up{job=\"openvpn-exporter\"} == 1)",
+                "legendFormat": "Online"
+              },
+              {
+                "expr": "count(up{job=\"openvpn-exporter\"} == 0)",
+                "legendFormat": "Offline"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Total Connected Clients",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "sum(openvpn_connected_clients)",
+                "legendFormat": "Clients"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "OpenVPN Uptime",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "avg(openvpn_uptime_seconds)",
+                "legendFormat": "Avg Uptime"
+              }
+            ],
+            "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0}
+          },
+          {
+            "id": 4,
+            "title": "OpenVPN Connections by Region",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum by(region) (openvpn_connected_clients)",
+                "legendFormat": "{{region}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6}
+          },
+          {
+            "id": 5,
+            "title": "OpenVPN Traffic",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(openvpn_client_received_bytes_total[5m])",
+                "legendFormat": "Received - {{instance}}"
+              },
+              {
+                "expr": "rate(openvpn_client_sent_bytes_total[5m])",
+                "legendFormat": "Sent - {{instance}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "30s"
+      }
+    }
+
+  system-monitoring.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "System Monitoring - VPN Servers",
+        "tags": ["system", "monitoring", "vpn"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "CPU Usage by Region",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "avg by(region) (100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))",
+                "legendFormat": "{{region}}"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "max": 100, "min": 0}
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Memory Usage by Region",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "avg by(region) ((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100)",
+                "legendFormat": "{{region}}"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "max": 100, "min": 0}
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Disk Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "100 - (node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"} * 100)",
+                "legendFormat": "{{instance}}"
+              }
+            ],
+            "yAxes": [
+              {"label": "Percentage", "max": 100, "min": 0}
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Network I/O",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(node_network_receive_bytes_total[5m])",
+                "legendFormat": "Receive - {{instance}}"
+              },
+              {
+                "expr": "rate(node_network_transmit_bytes_total[5m])",
+                "legendFormat": "Transmit - {{instance}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "30s"
+      }
+    }

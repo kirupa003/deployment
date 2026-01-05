@@ -1,0 +1,191 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+data:
+  vpn-infrastructure.yml: |
+    groups:
+    - name: vpn-infrastructure
+      rules:
+      # VPN Server Health Rules
+      - alert: VPNServerDown
+        expr: up{job=~"vpn-servers-.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: vpn-infrastructure
+        annotations:
+          summary: "VPN server {{ $labels.instance }} is down"
+          description: "VPN server {{ $labels.instance }} in region {{ $labels.region }} has been down for more than 5 minutes."
+
+      - alert: VPNServerHighCPU
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+          service: vpn-infrastructure
+        annotations:
+          summary: "High CPU usage on VPN server {{ $labels.instance }}"
+          description: "CPU usage is above 80% on {{ $labels.instance }} for more than 10 minutes."
+
+      - alert: VPNServerHighMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: vpn-infrastructure
+        annotations:
+          summary: "High memory usage on VPN server {{ $labels.instance }}"
+          description: "Memory usage is above 85% on {{ $labels.instance }} for more than 10 minutes."
+
+      - alert: VPNServerDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          service: vpn-infrastructure
+        annotations:
+          summary: "Low disk space on VPN server {{ $labels.instance }}"
+          description: "Disk space is below 15% on {{ $labels.instance }}."
+
+      # WireGuard Specific Rules
+      - alert: WireGuardServiceDown
+        expr: up{job="wireguard-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: wireguard
+        annotations:
+          summary: "WireGuard service down on {{ $labels.instance }}"
+          description: "WireGuard service on {{ $labels.instance }} in region {{ $labels.region }} is not responding."
+
+      - alert: WireGuardHighConnections
+        expr: wireguard_peers > 100
+        for: 15m
+        labels:
+          severity: warning
+          service: wireguard
+        annotations:
+          summary: "High number of WireGuard connections on {{ $labels.instance }}"
+          description: "WireGuard server {{ $labels.instance }} has more than 100 active connections."
+
+      - alert: WireGuardNoConnections
+        expr: wireguard_peers == 0
+        for: 30m
+        labels:
+          severity: info
+          service: wireguard
+        annotations:
+          summary: "No WireGuard connections on {{ $labels.instance }}"
+          description: "WireGuard server {{ $labels.instance }} has no active connections for 30 minutes."
+
+      # OpenVPN Specific Rules
+      - alert: OpenVPNServiceDown
+        expr: up{job="openvpn-exporter"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: openvpn
+        annotations:
+          summary: "OpenVPN service down on {{ $labels.instance }}"
+          description: "OpenVPN service on {{ $labels.instance }} in region {{ $labels.region }} is not responding."
+
+      - alert: OpenVPNHighConnections
+        expr: openvpn_connected_clients > 50
+        for: 15m
+        labels:
+          severity: warning
+          service: openvpn
+        annotations:
+          summary: "High number of OpenVPN connections on {{ $labels.instance }}"
+          description: "OpenVPN server {{ $labels.instance }} has more than 50 active connections."
+
+      # Regional Health Rules
+      - alert: RegionServersDown
+        expr: count by(region) (up{job=~"vpn-servers-.*"} == 0) > 2
+        for: 10m
+        labels:
+          severity: critical
+          service: vpn-infrastructure
+        annotations:
+          summary: "Multiple servers down in region {{ $labels.region }}"
+          description: "More than 2 servers are down in region {{ $labels.region }}."
+
+      - alert: RegionHighLoad
+        expr: avg by(region) (100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 70
+        for: 20m
+        labels:
+          severity: warning
+          service: vpn-infrastructure
+        annotations:
+          summary: "High average load in region {{ $labels.region }}"
+          description: "Average CPU usage in region {{ $labels.region }} is above 70% for more than 20 minutes."
+
+      # Network and Connectivity Rules
+      - alert: VPNServerNetworkIssues
+        expr: increase(node_network_receive_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: vpn-infrastructure
+        annotations:
+          summary: "Network errors on VPN server {{ $labels.instance }}"
+          description: "Network interface errors detected on {{ $labels.instance }}."
+
+      - alert: VPNServerHighNetworkTraffic
+        expr: rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m]) > 100000000  # 100MB/s
+        for: 15m
+        labels:
+          severity: info
+          service: vpn-infrastructure
+        annotations:
+          summary: "High network traffic on VPN server {{ $labels.instance }}"
+          description: "Network traffic on {{ $labels.instance }} is above 100MB/s for more than 15 minutes."
+
+  kubernetes-infrastructure.yml: |
+    groups:
+    - name: kubernetes-infrastructure
+      rules:
+      # Kubernetes Cluster Health
+      - alert: KubernetesNodeDown
+        expr: up{job="kubernetes-nodes"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: kubernetes
+        annotations:
+          summary: "Kubernetes node {{ $labels.instance }} is down"
+          description: "Kubernetes node {{ $labels.instance }} has been down for more than 5 minutes."
+
+      - alert: KubernetesPodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently."
+
+      - alert: KubernetesAPIServerDown
+        expr: up{job="kubernetes-apiservers"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: kubernetes
+        annotations:
+          summary: "Kubernetes API server is down"
+          description: "Kubernetes API server has been down for more than 5 minutes."
+
+      # Storage and Resource Alerts
+      - alert: KubernetesPVCStorageLow
+        expr: kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          service: kubernetes
+        annotations:
+          summary: "PVC {{ $labels.persistentvolumeclaim }} storage low"
+          description: "PVC {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} has less than 10% storage available."

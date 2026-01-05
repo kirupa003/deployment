@@ -1,0 +1,133 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vpn-config-api
+  namespace: vpn-management
+  labels:
+    app: vpn-config-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vpn-config-api
+  template:
+    metadata:
+      labels:
+        app: vpn-config-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: vpn-config-api
+        image: vpn-infrastructure/config-api:latest  # Custom image to be built
+        ports:
+        - containerPort: 8080
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: vpn-config-api-secrets
+              key: database-url
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: vpn-config-api-secrets
+              key: api-key
+        - name: ANSIBLE_INVENTORY_PATH
+          value: "/etc/ansible/inventories/production"
+        - name: WIREGUARD_CONFIG_PATH
+          value: "/etc/wireguard"
+        - name: OPENVPN_CONFIG_PATH
+          value: "/etc/openvpn"
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+        volumeMounts:
+        - name: ansible-config
+          mountPath: /etc/ansible
+          readOnly: true
+        - name: vpn-configs
+          mountPath: /etc/vpn-configs
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: ansible-config
+        configMap:
+          name: ansible-config
+      - name: vpn-configs
+        configMap:
+          name: vpn-configs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vpn-config-api
+  namespace: vpn-management
+  labels:
+    app: vpn-config-api
+spec:
+  selector:
+    app: vpn-config-api
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vpn-config-api-secrets
+  namespace: vpn-management
+type: Opaque
+data:
+  database-url: cG9zdGdyZXNxbDovL3VzZXI6cGFzc3dvcmRAcG9zdGdyZXNxbDo1NDMyL3ZwbmRi  # postgresql://user:password@postgresql:5432/vpndb
+  api-key: c3VwZXItc2VjcmV0LWFwaS1rZXktY2hhbmdlLWluLXByb2R1Y3Rpb24=  # super-secret-api-key-change-in-production
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ansible-config
+  namespace: vpn-management
+data:
+  ansible.cfg: |
+    [defaults]
+    inventory = /etc/ansible/inventories/production
+    host_key_checking = False
+    retry_files_enabled = False
+    stdout_callback = json
+    
+  inventories: |
+    # Ansible inventory will be synced here
+    # This is populated by the deployment process
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vpn-configs
+  namespace: vpn-management
+data:
+  # VPN configurations will be synced here from all servers
+  config-sync.yaml: |
+    # Configuration sync metadata
+    last_sync: "2025-01-05T00:00:00Z"
+    servers: 30
+    regions: ["europe", "north_america", "asia_pacific"]

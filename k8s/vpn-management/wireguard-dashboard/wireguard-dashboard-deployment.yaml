@@ -1,0 +1,119 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wireguard-dashboard
+  namespace: vpn-management
+  labels:
+    app: wireguard-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wireguard-dashboard
+  template:
+    metadata:
+      labels:
+        app: wireguard-dashboard
+    spec:
+      containers:
+      - name: wireguard-dashboard
+        image: donaldzou/wireguard-dashboard:v4.0
+        ports:
+        - containerPort: 10086
+        env:
+        - name: WGDASH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: wireguard-dashboard-secrets
+              key: username
+        - name: WGDASH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: wireguard-dashboard-secrets
+              key: password
+        - name: WG_CONF_PATH
+          value: "/etc/wireguard"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: wireguard-config
+          mountPath: /etc/wireguard
+          readOnly: true
+        - name: dashboard-data
+          mountPath: /opt/wireguarddashboard/src/db
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 10086
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 10086
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: wireguard-config
+        configMap:
+          name: wireguard-config
+      - name: dashboard-data
+        persistentVolumeClaim:
+          claimName: wireguard-dashboard-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wireguard-dashboard
+  namespace: vpn-management
+  labels:
+    app: wireguard-dashboard
+spec:
+  selector:
+    app: wireguard-dashboard
+  type: ClusterIP
+  ports:
+    - port: 10086
+      targetPort: 10086
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wireguard-dashboard-data
+  namespace: vpn-management
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wireguard-dashboard-secrets
+  namespace: vpn-management
+type: Opaque
+data:
+  username: YWRtaW4=  # admin - Change this in production!
+  password: YWRtaW4xMjM=  # admin123 - Change this in production!
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wireguard-config
+  namespace: vpn-management
+data:
+  # This will be populated by Ansible with actual WireGuard configurations
+  # from all 30 VPN servers
+  wg0.conf: |
+    # WireGuard configuration will be synced here by Ansible
+    # This is a placeholder - actual configs will be populated during deployment
