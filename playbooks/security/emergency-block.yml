@@ -1,0 +1,70 @@
+---
+# Emergency IP blocking across all VPN servers
+# Usage: ansible-playbook playbooks/security/emergency-block.yml -e "block_ip=1.2.3.4"
+
+- name: Emergency IP Block
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+
+  vars:
+    block_duration: "24h"
+    block_reason: "Emergency block via Ansible"
+
+  pre_tasks:
+    - name: Validate IP address
+      ansible.builtin.assert:
+        that:
+          - block_ip is defined
+          - block_ip | ansible.utils.ipaddr
+        fail_msg: "Please provide a valid IP address with -e 'block_ip=X.X.X.X'"
+
+    - name: Confirm blocking
+      ansible.builtin.pause:
+        prompt: "About to block {{ block_ip }} on all VPN servers. Press Enter to continue or Ctrl+C to abort"
+      when: not (auto_confirm | default(false))
+
+  tasks:
+    - name: Add IP to CrowdSec decisions
+      ansible.builtin.command:
+        cmd: "cscli decisions add --ip {{ block_ip }} --duration {{ block_duration }} --reason '{{ block_reason }}'"
+      register: crowdsec_block
+      changed_when: "'created' in crowdsec_block.stdout or crowdsec_block.rc == 0"
+      tags: [crowdsec]
+
+    - name: Add IP to iptables
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "{{ block_ip }}"
+        jump: DROP
+        comment: "{{ block_reason }}"
+      tags: [iptables]
+
+    - name: Add IP to Fail2Ban
+      ansible.builtin.command:
+        cmd: "fail2ban-client set sshd banip {{ block_ip }}"
+      register: fail2ban_block
+      changed_when: "'already' not in fail2ban_block.stderr"
+      failed_when: false
+      tags: [fail2ban]
+
+    - name: Log blocking action
+      ansible.builtin.lineinfile:
+        path: /var/log/vpn-infrastructure/emergency-blocks.log
+        line: "{{ ansible_date_time.iso8601 }} - Blocked {{ block_ip }} - Reason: {{ block_reason }}"
+        create: true
+        mode: "0640"
+      tags: [logging]
+
+  post_tasks:
+    - name: Verify IP is blocked
+      ansible.builtin.command:
+        cmd: "cscli decisions list --ip {{ block_ip }}"
+      register: block_verify
+      changed_when: false
+      tags: [verify]
+
+    - name: Display blocking confirmation
+      ansible.builtin.debug:
+        msg: "IP {{ block_ip }} has been blocked on {{ inventory_hostname }}"
+      tags: [verify]

@@ -1,0 +1,48 @@
+---
+# AmneziaWG Role Handlers
+
+- name: restart amneziawg
+  systemd:
+    name: "awg-quick@{{ amneziawg_interface }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload amneziawg
+  command: "awg-quick down {{ amneziawg_interface }} && awg-quick up {{ amneziawg_interface }}"
+  become: true
+  ignore_errors: true
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+  become: true
+
+- name: apply sysctl
+  command: sysctl -p
+  become: true
+
+- name: restart ufw
+  systemd:
+    name: ufw
+    state: restarted
+  become: true
+  when: amneziawg_firewall_enabled
+
+- name: rebuild kernel module
+  command: make -C {{ amneziawg_build_dir }}/src
+  become: true
+  args:
+    chdir: "{{ amneziawg_build_dir }}"
+
+- name: install kernel module
+  command: make -C {{ amneziawg_build_dir }}/src install
+  become: true
+  args:
+    chdir: "{{ amneziawg_build_dir }}"
+
+- name: load amneziawg module
+  modprobe:
+    name: amneziawg
+    state: present
+  become: true

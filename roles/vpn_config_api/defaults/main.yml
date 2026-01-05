@@ -1,0 +1,57 @@
+---
+# VPN Configuration API Service
+# REST API for VPN gateways and clients to retrieve configurations
+#
+# SCALABILITY:
+#   - Small (30 servers): 1 instance, 4 workers
+#   - Medium (200 servers): 1 instance, 8 workers
+#   - Large (1000 servers): 2-3 instances behind load balancer
+#   - Enterprise (5000+ servers): Kubernetes deployment with HPA
+
+# API settings
+vpn_api_host: "0.0.0.0"
+vpn_api_port: 8080
+vpn_api_workers: 4  # Increase for more servers (1 worker per 50 servers)
+vpn_api_log_level: "info"
+
+# Connection pool for database
+vpn_api_db_pool_min: 2
+vpn_api_db_pool_max: 10  # Increase for more servers
+
+# API authentication
+vpn_api_secret_key: "{{ vault_vpn_api_secret_key | default('change-this-secret-key') }}"
+vpn_api_token_expire_hours: 24
+
+# Database connection (from vpn_config_db role)
+vpn_api_db_host: "{{ groups['vpn_config_db'][0] | default('localhost') }}"
+vpn_api_db_port: 5432
+vpn_api_db_name: "vpn_configs"
+vpn_api_db_user: "vpn_api"
+vpn_api_db_password: "{{ vault_vpn_api_password | default('changeme') }}"
+
+# Rate limiting
+vpn_api_rate_limit_enabled: true
+vpn_api_rate_limit_requests: 100
+vpn_api_rate_limit_period: 60  # seconds
+
+# Gateway authentication (shared secrets per gateway)
+vpn_api_gateway_tokens: "{{ vault_vpn_gateway_tokens | default({}) }}"
+
+# Client config retrieval
+vpn_api_client_auth_enabled: true
+vpn_api_client_token_length: 32
+
+# CORS settings
+vpn_api_cors_origins:
+  - "https://vpn-admin.example.com"
+  - "http://localhost:3000"
+
+# SSL/TLS (recommend using reverse proxy)
+vpn_api_ssl_enabled: false
+vpn_api_ssl_cert: ""
+vpn_api_ssl_key: ""
+
+# Docker settings
+vpn_api_image: "vpn-config-api:latest"
+vpn_api_container_name: "vpn-config-api"
+vpn_api_data_dir: "/opt/vpn-config-api"

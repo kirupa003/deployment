@@ -1,0 +1,44 @@
+---
+- name: Include system setup tasks
+  include_tasks: system.yml
+  tags:
+    - promtail
+    - system
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - promtail
+    - install
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - promtail
+    - configure
+
+- name: Include firewall tasks
+  include_tasks: firewall.yml
+  when: promtail_firewall_enabled
+  tags:
+    - promtail
+    - firewall
+
+- name: Include log rotation tasks
+  include_tasks: logrotate.yml
+  when: promtail_log_rotation_enabled
+  tags:
+    - promtail
+    - logrotate
+
+- name: Include service tasks
+  include_tasks: service.yml
+  tags:
+    - promtail
+    - service
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - promtail
+    - validate

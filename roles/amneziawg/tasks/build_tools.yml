@@ -1,0 +1,56 @@
+---
+# Build AmneziaWG Tools
+
+- name: Clone AmneziaWG tools repository
+  git:
+    repo: "{{ amneziawg_tools_repo_url }}"
+    dest: "{{ amneziawg_tools_build_dir }}"
+    version: "{{ amneziawg_version }}"
+    force: true
+  become: true
+
+- name: Check if tools need rebuilding
+  stat:
+    path: "{{ _awg_binary }}"
+  register: tools_check
+
+- name: Build AmneziaWG tools
+  command: make
+  args:
+    chdir: "{{ amneziawg_tools_build_dir }}/src"
+  become: true
+  when: not tools_check.stat.exists
+
+- name: Install AmneziaWG tools
+  command: make install
+  args:
+    chdir: "{{ amneziawg_tools_build_dir }}/src"
+  become: true
+  environment:
+    PREFIX: /usr/local
+  when: not tools_check.stat.exists
+
+- name: Create awg-quick wrapper script
+  template:
+    src: awg-quick.j2
+    dest: "{{ _awg_quick_binary }}"
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create systemd service template for awg-quick
+  template:
+    src: awg-quick@.service.j2
+    dest: /etc/systemd/system/awg-quick@.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: reload systemd
+
+- name: Verify tools installation
+  command: "{{ _awg_binary }} --version"
+  register: awg_version_check
+  changed_when: false
+  failed_when: awg_version_check.rc != 0

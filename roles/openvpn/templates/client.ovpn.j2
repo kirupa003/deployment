@@ -1,0 +1,51 @@
+# OpenVPN Client Configuration
+# Client: {{ client_name }}
+# Generated: {{ ansible_date_time.iso8601 }}
+
+client
+dev tun
+proto {{ openvpn_protocol if openvpn_protocol != 'both' else 'udp' }}
+remote {{ ansible_default_ipv4.address }} {{ openvpn_port_udp if openvpn_protocol != 'tcp' else openvpn_port_tcp }}
+{% if openvpn_protocol == 'both' %}
+remote {{ ansible_default_ipv4.address }} {{ openvpn_port_tcp }} tcp
+{% endif %}
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+
+# Security
+remote-cert-tls server
+cipher {{ openvpn_cipher }}
+auth {{ openvpn_auth }}
+tls-version-min {{ openvpn_tls_version_min }}
+
+# Logging
+verb 3
+mute 20
+
+# Certificates and keys (embedded)
+<ca>
+{{ ca_certificate }}
+</ca>
+
+<cert>
+{{ client_certificate }}
+</cert>
+
+<key>
+{{ client_private_key }}
+</key>
+
+{% if openvpn_tls_auth %}
+<tls-auth>
+{{ tls_auth_key }}
+</tls-auth>
+key-direction 1
+{% endif %}
+
+{% if openvpn_tls_crypt %}
+<tls-crypt>
+{{ tls_crypt_key }}
+</tls-crypt>
+{% endif %}

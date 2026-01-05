@@ -1,0 +1,33 @@
+[Unit]
+Description=CoreDNS DNS server
+Documentation=https://coredns.io
+After=network.target
+
+[Service]
+Type=simple
+User={{ coredns_user }}
+Group={{ coredns_group }}
+ExecStart={{ coredns_home }}/coredns -conf {{ coredns_config_dir }}/Corefile
+ExecReload=/bin/kill -SIGUSR1 $MAINPID
+TimeoutStopSec=5
+KillMode=mixed
+Restart=always
+RestartSec=5
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ coredns_data_dir }} {{ coredns_log_dir }}
+
+# Resource limits
+LimitNOFILE=1048576
+LimitNPROC=1048576
+
+# Environment
+EnvironmentFile=-{{ coredns_config_dir }}/coredns.env
+
+[Install]
+WantedBy=multi-user.target

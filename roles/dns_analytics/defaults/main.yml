@@ -1,0 +1,22 @@
+---
+# DNS Analytics - Central storage for all DNS queries
+
+# ClickHouse configuration
+clickhouse_enabled: true
+clickhouse_version: "24.1"
+clickhouse_http_port: 8123
+clickhouse_native_port: 9000
+clickhouse_data_dir: /var/lib/clickhouse
+clickhouse_log_dir: /var/log/clickhouse-server
+
+# Database settings
+clickhouse_database: dns_analytics
+clickhouse_table: dns_queries
+clickhouse_user: dns_admin
+clickhouse_password: "{{ vault_clickhouse_password | default('changeme') }}"
+
+# Retention (days)
+clickhouse_retention_days: 90
+
+# Memory limits
+clickhouse_max_memory_usage: "4G"

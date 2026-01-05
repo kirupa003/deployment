@@ -1,0 +1,381 @@
+---
+- name: VPN Server Decommissioning with Connection Draining
+  hosts: "{{ target_hosts | default('vpn_servers') }}"
+  become: yes
+  gather_facts: yes
+  vars:
+    # Decommissioning configuration
+    drain_timeout: 1800  # 30 minutes
+    force_disconnect: false
+    backup_configs: true
+    cleanup_data: true
+    
+    # Connection draining settings
+    drain_check_interval: 30
+    max_drain_attempts: 60
+    
+    # Backup settings
+    backup_location: "/tmp/server-backups"
+    
+  pre_tasks:
+    - name: Validate decommissioning request
+      block:
+        - name: Check server status
+          stat:
+            path: /opt/vpn-provisioning/status
+          register: server_status
+
+        - name: Verify server is provisioned
+          assert:
+            that:
+              - server_status.stat.exists
+            fail_msg: "Server is not properly provisioned, cannot decommission"
+
+        - name: Get current connections
+          shell: |
+            # Count WireGuard connections
+            wg show wg0 peers 2>/dev/null | wc -l || echo "0"
+          register: wg_connections
+          ignore_errors: yes
+
+        - name: Get OpenVPN connections
+          shell: |
+            # Count OpenVPN connections
+            if [ -f /var/log/openvpn/status.log ]; then
+              grep "^CLIENT_LIST" /var/log/openvpn/status.log | wc -l
+            else
+              echo "0"
+            fi
+          register: ovpn_connections
+          ignore_errors: yes
+
+        - name: Calculate total active connections
+          set_fact:
+            total_connections: "{{ (wg_connections.stdout | int) + (ovpn_connections.stdout | int) }}"
+
+        - name: Display connection status
+          debug:
+            msg: |
+              Current active connections: {{ total_connections }}
+              WireGuard: {{ wg_connections.stdout | default('0') }}
+              OpenVPN: {{ ovpn_connections.stdout | default('0') }}
+
+  tasks:
+    - name: Create decommissioning directory
+      file:
+        path: /opt/vpn-decommissioning
+        state: directory
+        mode: '0755'
+
+    - name: Log decommissioning start
+      copy:
+        content: |
+          Decommissioning started: {{ ansible_date_time.iso8601 }}
+          Server: {{ inventory_hostname }}
+          Active connections: {{ total_connections }}
+          Drain timeout: {{ drain_timeout }}s
+        dest: /opt/vpn-decommissioning/decommission.log
+
+    - name: Backup server configurations
+      block:
+        - name: Create backup directory
+          file:
+            path: "{{ backup_location }}/{{ inventory_hostname }}"
+            state: directory
+            mode: '0755'
+          delegate_to: localhost
+
+        - name: Backup WireGuard configuration
+          fetch:
+            src: /etc/wireguard/wg0.conf
+            dest: "{{ backup_location }}/{{ inventory_hostname }}/wg0.conf"
+            flat: yes
+          when: ansible_facts.services['wg-quick@wg0.service'] is defined
+          ignore_errors: yes
+
+        - name: Backup OpenVPN configuration
+          fetch:
+            src: /etc/openvpn/server/server.conf
+            dest: "{{ backup_location }}/{{ inventory_hostname }}/server.conf"
+            flat: yes
+          when: ansible_facts.services['openvpn@server.service'] is defined
+          ignore_errors: yes
+
+        - name: Backup PKI certificates
+          fetch:
+            src: /etc/openvpn/pki/
+            dest: "{{ backup_location }}/{{ inventory_hostname }}/pki/"
+          when: ansible_facts.services['openvpn@server.service'] is defined
+          ignore_errors: yes
+
+        - name: Backup server metadata
+          fetch:
+            src: /opt/vpn-provisioning/server-metadata.json
+            dest: "{{ backup_location }}/{{ inventory_hostname }}/server-metadata.json"
+            flat: yes
+          ignore_errors: yes
+
+        - name: Backup monitoring configurations
+          fetch:
+            src: "{{ item }}"
+            dest: "{{ backup_location }}/{{ inventory_hostname }}/"
+          loop:
+            - /etc/prometheus/node_exporter.yml
+            - /etc/promtail/config.yml
+            - /etc/crowdsec/config.yaml
+          ignore_errors: yes
+
+      when: backup_configs | bool
+
+    - name: Begin connection draining
+      block:
+        - name: Stop accepting new connections
+          block:
+            - name: Block new WireGuard connections
+              iptables:
+                chain: INPUT
+                protocol: udp
+                destination_port: "51820"
+                jump: DROP
+                comment: "Block new WireGuard connections during decommissioning"
+              ignore_errors: yes
+
+            - name: Block new OpenVPN connections
+              iptables:
+                chain: INPUT
+                protocol: "{{ item }}"
+                destination_port: "1194"
+                jump: DROP
+                comment: "Block new OpenVPN connections during decommissioning"
+              loop:
+                - udp
+                - tcp
+              ignore_errors: yes
+
+        - name: Wait for connections to drain naturally
+          block:
+            - name: Monitor connection draining
+              shell: |
+                # Count remaining connections
+                wg_count=$(wg show wg0 peers 2>/dev/null | wc -l || echo "0")
+                ovpn_count=0
+                if [ -f /var/log/openvpn/status.log ]; then
+                  ovpn_count=$(grep "^CLIENT_LIST" /var/log/openvpn/status.log | wc -l)
+                fi
+                echo $((wg_count + ovpn_count))
+              register: remaining_connections
+              until: remaining_connections.stdout | int == 0
+              retries: "{{ max_drain_attempts }}"
+              delay: "{{ drain_check_interval }}"
+              ignore_errors: yes
+
+            - name: Log draining progress
+              debug:
+                msg: "Remaining connections: {{ remaining_connections.stdout | default('unknown') }}"
+
+        - name: Force disconnect remaining connections
+          block:
+            - name: Force disconnect WireGuard peers
+              shell: |
+                for peer in $(wg show wg0 peers); do
+                  wg set wg0 peer $peer remove
+                done
+              ignore_errors: yes
+
+            - name: Force disconnect OpenVPN clients
+              shell: |
+                if [ -f /var/run/openvpn/server.pid ]; then
+                  kill -TERM $(cat /var/run/openvpn/server.pid)
+                fi
+              ignore_errors: yes
+
+            - name: Wait for forced disconnections
+              wait_for:
+                timeout: 30
+
+          when: 
+            - remaining_connections.stdout | default('0') | int > 0
+            - force_disconnect | bool
+
+    - name: Stop VPN services
+      block:
+        - name: Stop WireGuard service
+          systemd:
+            name: wg-quick@wg0
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Stop OpenVPN service
+          systemd:
+            name: openvpn@server
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+        - name: Stop AmneziaWG service
+          systemd:
+            name: awg-quick@awg0
+            state: stopped
+            enabled: no
+          ignore_errors: yes
+
+    - name: Stop monitoring and security services
+      block:
+        - name: Stop monitoring agents
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: no
+          loop:
+            - node_exporter
+            - promtail
+            - wg_exporter
+          ignore_errors: yes
+
+        - name: Stop security services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+            enabled: no
+          loop:
+            - crowdsec
+            - fail2ban
+          ignore_errors: yes
+
+    - name: Clean up configurations
+      block:
+        - name: Remove VPN configurations
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/wireguard/
+            - /etc/openvpn/
+            - /etc/amneziawg/
+          when: cleanup_data | bool
+
+        - name: Remove monitoring configurations
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/prometheus/
+            - /etc/promtail/
+            - /opt/wg_exporter/
+          when: cleanup_data | bool
+
+        - name: Remove security configurations
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/crowdsec/
+            - /etc/fail2ban/
+          when: cleanup_data | bool
+
+        - name: Clean up provisioning data
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /opt/vpn-provisioning/
+            - /opt/vpn-decommissioning/
+          when: cleanup_data | bool
+
+    - name: Remove firewall rules
+      block:
+        - name: Reset UFW to defaults
+          ufw:
+            state: reset
+          ignore_errors: yes
+
+        - name: Flush iptables rules
+          iptables:
+            flush: yes
+          ignore_errors: yes
+
+        - name: Remove custom iptables rules
+          shell: |
+            # Remove VPN-related iptables rules
+            iptables -t nat -F
+            iptables -t mangle -F
+            iptables-save > /etc/iptables/rules.v4
+          ignore_errors: yes
+
+    - name: Uninstall VPN packages
+      block:
+        - name: Remove WireGuard packages
+          package:
+            name:
+              - wireguard
+              - wireguard-tools
+            state: absent
+          when: cleanup_data | bool
+          ignore_errors: yes
+
+        - name: Remove OpenVPN packages
+          package:
+            name:
+              - openvpn
+              - easy-rsa
+            state: absent
+          when: cleanup_data | bool
+          ignore_errors: yes
+
+        - name: Remove monitoring packages
+          package:
+            name:
+              - prometheus-node-exporter
+            state: absent
+          when: cleanup_data | bool
+          ignore_errors: yes
+
+    - name: Final cleanup and validation
+      block:
+        - name: Verify services are stopped
+          shell: |
+            systemctl is-active {{ item }} || echo "stopped"
+          loop:
+            - wg-quick@wg0
+            - openvpn@server
+            - node_exporter
+            - crowdsec
+          register: service_status
+          ignore_errors: yes
+
+        - name: Verify no active VPN connections
+          shell: |
+            netstat -tuln | grep -E ':(51820|1194|10086)' || echo "no_vpn_ports"
+          register: port_check
+          ignore_errors: yes
+
+        - name: Mark server as decommissioned
+          copy:
+            content: |
+              DECOMMISSIONED={{ ansible_date_time.iso8601 }}
+              BACKUP_LOCATION={{ backup_location }}/{{ inventory_hostname }}
+              CLEANUP_PERFORMED={{ cleanup_data }}
+            dest: /tmp/decommission-status.txt
+
+  post_tasks:
+    - name: Generate decommissioning report
+      template:
+        src: templates/decommissioning-report.j2
+        dest: "/tmp/decommissioning-report-{{ inventory_hostname }}.txt"
+      delegate_to: localhost
+
+    - name: Display decommissioning summary
+      debug:
+        msg: |
+          Server {{ inventory_hostname }} decommissioning completed:
+          - Connections drained: {{ total_connections }}
+          - Backup created: {{ backup_configs }}
+          - Data cleaned: {{ cleanup_data }}
+          - Backup location: {{ backup_location }}/{{ inventory_hostname }}
+          - Decommissioned at: {{ ansible_date_time.iso8601 }}
+
+  handlers:
+    - name: save iptables
+      shell: iptables-save > /etc/iptables/rules.v4
+      ignore_errors: yes

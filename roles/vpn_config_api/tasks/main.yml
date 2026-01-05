@@ -1,0 +1,136 @@
+---
+# VPN Configuration API Service
+
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: true
+  tags: [vpn_config_api, docker]
+
+- name: Add Docker GPG key
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  tags: [vpn_config_api, docker]
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    state: present
+  tags: [vpn_config_api, docker]
+
+- name: Install Docker
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+  tags: [vpn_config_api, docker]
+
+- name: Start and enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  tags: [vpn_config_api, docker]
+
+- name: Create API directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ vpn_api_data_dir }}"
+    - "{{ vpn_api_data_dir }}/app"
+  tags: [vpn_config_api, config]
+
+- name: Copy API application files
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ vpn_api_data_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "app/main.py", dest: "app/main.py", mode: "0644" }
+    - { src: "app/requirements.txt", dest: "app/requirements.txt", mode: "0644" }
+    - { src: "Dockerfile", dest: "Dockerfile", mode: "0644" }
+  notify: Restart VPN Config API
+  tags: [vpn_config_api, config]
+
+- name: Deploy Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ vpn_api_data_dir }}/docker-compose.yml"
+    mode: "0644"
+  notify: Restart VPN Config API
+  tags: [vpn_config_api, config]
+
+- name: Build API image
+  community.docker.docker_image:
+    name: "{{ vpn_api_image }}"
+    build:
+      path: "{{ vpn_api_data_dir }}"
+    source: build
+    force_source: true
+  tags: [vpn_config_api, docker]
+
+- name: Start VPN Config API
+  community.docker.docker_compose_v2:
+    project_src: "{{ vpn_api_data_dir }}"
+    state: present
+  tags: [vpn_config_api, docker]
+
+- name: Wait for API to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ vpn_api_port }}/health"
+    method: GET
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 30
+  delay: 5
+  tags: [vpn_config_api, verify]
+
+- name: Configure firewall for API
+  community.general.ufw:
+    rule: allow
+    port: "{{ vpn_api_port | string }}"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop: "{{ groups['wireguard_servers'] | default([]) + groups['amneziawg_servers'] | default([]) + ['10.0.0.0/8'] }}"
+  tags: [vpn_config_api, firewall]
+
+- name: Display API info
+  ansible.builtin.debug:
+    msg: |
+      =====================================================
+      VPN Configuration API Deployed!
+      =====================================================
+
+      API Endpoint: http://{{ ansible_host }}:{{ vpn_api_port }}
+      Health Check: http://{{ ansible_host }}:{{ vpn_api_port }}/health
+      API Docs: http://{{ ansible_host }}:{{ vpn_api_port }}/docs
+
+      Gateway Endpoints:
+      - POST /api/v1/gateway/register  - Register gateway
+      - GET  /api/v1/gateway/peers     - Get peer configs
+      - POST /api/v1/gateway/peers     - Create peer
+
+      Client Endpoints:
+      - GET  /api/v1/client/config     - Get WireGuard config
+      - GET  /api/v1/client/servers    - List available servers
+
+      Admin Endpoints:
+      - GET  /api/v1/admin/servers     - List all servers
+      - GET  /api/v1/admin/stats       - Global statistics
+      =====================================================
+  tags: [vpn_config_api, verify]

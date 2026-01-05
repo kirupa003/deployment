@@ -1,0 +1,3 @@
+# Certificate storage directory
+# Private keys and certificates will be stored here
+# Note: Private keys are excluded from git via .gitignore

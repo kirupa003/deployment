@@ -1,0 +1,31 @@
+# {{ deployment_type }} Deployment Report
+
+**Deployment ID:** {{ deployment_id }}
+**Server:** {{ inventory_hostname }}
+**Timestamp:** {{ ansible_date_time.iso8601 }}
+**Deployment Type:** {{ deployment_type }}
+
+## Services Deployed
+{% for service in services_deployed %}
+- {{ service }}
+{% endfor %}
+
+## Service Status
+{% for service_name, status in service_status.items() %}
+- **{{ service_name }}:** {{ status }}
+{% endfor %}
+
+## Network Configuration
+- **Primary IP:** {{ ansible_default_ipv4.address }}
+- **Interface:** {{ ansible_default_ipv4.interface }}
+- **Gateway:** {{ ansible_default_ipv4.gateway }}
+
+## System Information
+- **OS:** {{ ansible_distribution }} {{ ansible_distribution_version }}
+- **Kernel:** {{ ansible_kernel }}
+- **Architecture:** {{ ansible_architecture }}
+- **CPU Cores:** {{ ansible_processor_vcpus }}
+- **Memory:** {{ ansible_memtotal_mb }}MB
+
+## Deployment Summary
+Deployment completed successfully with all services operational.

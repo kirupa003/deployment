@@ -1,0 +1,92 @@
+---
+- name: Create CrowdSec iptables chain
+  iptables:
+    chain: "{{ crowdsec_iptables_chain }}"
+    table: filter
+    chain_management: true
+  become: true
+  when: crowdsec_iptables_integration | bool
+
+- name: Insert CrowdSec chain into INPUT
+  iptables:
+    chain: INPUT
+    jump: "{{ crowdsec_iptables_chain }}"
+    protocol: tcp
+    destination_port: "22"
+    comment: "CrowdSec SSH protection"
+  become: true
+  when: crowdsec_iptables_integration | bool
+
+- name: Insert CrowdSec chain into INPUT for VPN ports
+  iptables:
+    chain: INPUT
+    jump: "{{ crowdsec_iptables_chain }}"
+    protocol: "{{ item.protocol }}"
+    destination_port: "{{ item.port }}"
+    comment: "CrowdSec VPN protection - {{ item.service }}"
+  become: true
+  loop:
+    - { protocol: "udp", port: "51820", service: "WireGuard" }
+    - { protocol: "udp", port: "1194", service: "OpenVPN" }
+    - { protocol: "tcp", port: "1194", service: "OpenVPN" }
+    - { protocol: "tcp", port: "443", service: "HTTPS" }
+    - { protocol: "tcp", port: "80", service: "HTTP" }
+  when: crowdsec_iptables_integration | bool
+
+- name: Configure UFW integration
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} CrowdSec integration"
+    insertafter: "# Don't delete these required lines"
+    block: |
+      # CrowdSec integration
+      -A ufw-before-input -j {{ crowdsec_iptables_chain }}
+  become: true
+  notify: restart crowdsec-firewall-bouncer
+  when: 
+    - crowdsec_ufw_integration | bool
+    - crowdsec_iptables_integration | bool
+
+- name: Create CrowdSec firewall management script
+  template:
+    src: crowdsec-firewall-manager.sh.j2
+    dest: /usr/local/bin/crowdsec-firewall-manager.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create CrowdSec decision monitoring script
+  template:
+    src: crowdsec-decision-monitor.sh.j2
+    dest: /usr/local/bin/crowdsec-decision-monitor.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create systemd timer for decision monitoring
+  template:
+    src: crowdsec-decision-monitor.timer.j2
+    dest: /etc/systemd/system/crowdsec-decision-monitor.timer
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Create systemd service for decision monitoring
+  template:
+    src: crowdsec-decision-monitor.service.j2
+    dest: /etc/systemd/system/crowdsec-decision-monitor.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Enable and start decision monitoring timer
+  systemd:
+    name: crowdsec-decision-monitor.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true

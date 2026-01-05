@@ -1,0 +1,73 @@
+---
+# OpenVPN Package Installation
+
+- name: Update package cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install OpenVPN packages
+  apt:
+    name: "{{ _openvpn_packages[ansible_distribution] | default(openvpn_packages) }}"
+    state: present
+  become: true
+  notify: reload systemd
+
+- name: Create OpenVPN directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ _openvpn_config_dir }}"
+    - "{{ openvpn_log_dir }}"
+    - "{{ openvpn_client_config_dir }}"
+    - "{{ openvpn_client_template_dir }}"
+    - "{{ openvpn_ccd_dir }}"
+
+- name: Create secure directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+  loop:
+    - "{{ openvpn_ca_dir }}"
+    - "{{ openvpn_pki_dir }}"
+
+- name: Check if Easy-RSA is available
+  stat:
+    path: "{{ _easyrsa_dir }}"
+  register: easyrsa_check
+
+- name: Download Easy-RSA if not available
+  get_url:
+    url: "https://github.com/OpenVPN/easy-rsa/releases/download/v3.1.2/EasyRSA-3.1.2.tgz"
+    dest: /tmp/easyrsa.tgz
+    mode: '0644'
+  when: not easyrsa_check.stat.exists
+
+- name: Extract Easy-RSA
+  unarchive:
+    src: /tmp/easyrsa.tgz
+    dest: /usr/share/
+    remote_src: true
+    owner: root
+    group: root
+    creates: "{{ _easyrsa_dir }}"
+  become: true
+  when: not easyrsa_check.stat.exists
+
+- name: Create Easy-RSA symlink
+  file:
+    src: /usr/share/EasyRSA-3.1.2
+    dest: "{{ _easyrsa_dir }}"
+    state: link
+  become: true
+  when: not easyrsa_check.stat.exists

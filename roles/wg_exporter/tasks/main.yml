@@ -1,0 +1,37 @@
+---
+- name: Include system setup tasks
+  include_tasks: system.yml
+  tags:
+    - wg_exporter
+    - system
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - wg_exporter
+    - install
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - wg_exporter
+    - configure
+
+- name: Include firewall tasks
+  include_tasks: firewall.yml
+  when: wg_exporter_firewall_enabled
+  tags:
+    - wg_exporter
+    - firewall
+
+- name: Include service tasks
+  include_tasks: service.yml
+  tags:
+    - wg_exporter
+    - service
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - wg_exporter
+    - validate

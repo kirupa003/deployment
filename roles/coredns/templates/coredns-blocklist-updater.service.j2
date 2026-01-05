@@ -1,0 +1,27 @@
+[Unit]
+Description=CoreDNS Blocklist Updater
+Documentation=https://coredns.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User={{ coredns_user }}
+Group={{ coredns_group }}
+ExecStart={{ coredns_home }}/update-blocklists.sh
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ coredns_data_dir }} {{ coredns_log_dir }} /tmp
+
+# Network access required for downloading blocklists
+PrivateNetwork=false
+
+# Timeout for blocklist downloads
+TimeoutStartSec=300

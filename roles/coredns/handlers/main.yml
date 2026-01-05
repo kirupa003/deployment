@@ -1,0 +1,25 @@
+---
+- name: restart coredns
+  systemd:
+    name: coredns
+    state: restarted
+    daemon_reload: yes
+  become: yes
+
+- name: reload coredns
+  systemd:
+    name: coredns
+    state: reloaded
+  become: yes
+
+- name: restart coredns-blocklist-updater
+  systemd:
+    name: coredns-blocklist-updater.timer
+    state: restarted
+    daemon_reload: yes
+  become: yes
+
+- name: update firewall rules
+  command: ufw reload
+  become: yes
+  when: ansible_os_family == "Debian"

@@ -1,0 +1,103 @@
+---
+# Server Health Check Tasks
+# Used by provisioning and validation playbooks
+
+- name: Basic connectivity test
+  wait_for_connection:
+    timeout: 30
+  register: connectivity_test
+
+- name: Check system services
+  systemd:
+    name: "{{ item }}"
+  register: system_service_check
+  loop:
+    - ssh
+    - systemd-resolved
+    - systemd-timesyncd
+  failed_when: false
+
+- name: Verify network interfaces
+  shell: |
+    ip link show | grep -E "(wg0|tun0|eth0)" | grep "state UP" | wc -l
+  register: interface_check
+  changed_when: false
+
+- name: Check disk space
+  shell: |
+    df / | tail -1 | awk '{print $4}'
+  register: available_space
+  changed_when: false
+
+- name: Verify firewall status
+  shell: |
+    ufw status | grep -q "Status: active" && echo "active" || echo "inactive"
+  register: firewall_check
+  changed_when: false
+
+- name: Test VPN service ports
+  wait_for:
+    port: "{{ item }}"
+    host: "{{ ansible_default_ipv4.address }}"
+    timeout: 10
+  loop:
+    - 22    # SSH
+    - 51820 # WireGuard
+    - 1194  # OpenVPN
+  register: port_test
+  failed_when: false
+
+- name: Validate monitoring endpoints
+  uri:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ item }}/metrics"
+    method: GET
+    timeout: 10
+  loop:
+    - 9100  # node_exporter
+    - 9586  # wg_exporter
+  register: metrics_test
+  failed_when: false
+
+- name: Check log file permissions
+  stat:
+    path: "{{ item }}"
+  register: log_permissions
+  loop:
+    - /var/log/auth.log
+    - /var/log/syslog
+    - /var/log/wireguard.log
+  failed_when: false
+
+- name: Compile health check results
+  set_fact:
+    health_check_results:
+      connectivity: "{{ connectivity_test is succeeded }}"
+      services_up: "{{ system_service_check.results | selectattr('status.ActiveState', 'equalto', 'active') | list | length }}"
+      total_services: "{{ system_service_check.results | length }}"
+      interfaces_up: "{{ interface_check.stdout | int }}"
+      available_space_kb: "{{ available_space.stdout | int }}"
+      firewall_active: "{{ firewall_check.stdout == 'active' }}"
+      ports_accessible: "{{ port_test.results | selectattr('failed', 'equalto', false) | list | length }}"
+      metrics_accessible: "{{ metrics_test.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list | length }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+
+- name: Display health check summary
+  debug:
+    msg: |
+      Health Check Results:
+      - Connectivity: {{ health_check_results.connectivity }}
+      - Services: {{ health_check_results.services_up }}/{{ health_check_results.total_services }} active
+      - Network interfaces: {{ health_check_results.interfaces_up }} up
+      - Available space: {{ (health_check_results.available_space_kb | int / 1024 / 1024) | round(2) }} GB
+      - Firewall: {{ health_check_results.firewall_active }}
+      - Accessible ports: {{ health_check_results.ports_accessible }}
+      - Metrics endpoints: {{ health_check_results.metrics_accessible }}
+
+- name: Fail if critical issues found
+  fail:
+    msg: "Critical health check failures detected"
+  when: 
+    - not health_check_results.connectivity or
+      health_check_results.services_up < 2 or
+      not health_check_results.firewall_active or
+      health_check_results.available_space_kb | int < 1048576  # Less than 1GB

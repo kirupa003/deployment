@@ -1,0 +1,27 @@
+---
+# WireGuard Dashboard Role Metadata
+
+galaxy_info:
+  author: DevOps Team
+  description: >
+    Deploy WireGuard Dashboard with Docker for managing WireGuard and AmneziaWG.
+    All configurations are stored in SQLite database.
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - wireguard
+    - amneziawg
+    - vpn
+    - docker
+    - dashboard
+
+dependencies: []

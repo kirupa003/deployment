@@ -1,0 +1,24 @@
+---
+# Cloudflare Tunnel Handlers
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Restart cloudflared
+  service:
+    name: cloudflared
+    state: restarted
+  when: cloudflared_install_method != 'docker'
+
+- name: Restart cloudflared docker
+  community.docker.docker_compose:
+    project_src: /opt/cloudflared
+    state: present
+    restarted: true
+  when: cloudflared_install_method == 'docker'
+
+- name: Restart SSH
+  service:
+    name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+    state: restarted

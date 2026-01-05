@@ -1,0 +1,49 @@
+---
+# OpenVPN Configuration Validation
+
+- name: Validate required variables
+  assert:
+    that:
+      - openvpn_port_udp is defined
+      - openvpn_port_tcp is defined
+      - openvpn_server_network is defined
+      - openvpn_server_netmask is defined
+      - openvpn_protocol in ['udp', 'tcp', 'both']
+    fail_msg: "Required OpenVPN variables are not defined or invalid"
+
+- name: Validate network configuration
+  assert:
+    that:
+      - openvpn_server_network | ansible.utils.ipaddr('network')
+      - openvpn_server_ip | ansible.utils.ipaddr
+    fail_msg: "Invalid network configuration"
+
+- name: Validate port ranges
+  assert:
+    that:
+      - openvpn_port_udp | int >= 1024
+      - openvpn_port_udp | int <= 65535
+      - openvpn_port_tcp | int >= 1024
+      - openvpn_port_tcp | int <= 65535
+    fail_msg: "OpenVPN ports must be between 1024 and 65535"
+
+- name: Check if running as root or with sudo
+  assert:
+    that:
+      - ansible_user_uid == 0 or ansible_become
+    fail_msg: "OpenVPN installation requires root privileges"
+
+- name: Validate certificate configuration
+  assert:
+    that:
+      - openvpn_ca_country | length == 2
+      - openvpn_ca_org is defined
+      - openvpn_key_size in [2048, 4096]
+    fail_msg: "Invalid certificate configuration"
+
+- name: Validate cipher and authentication
+  assert:
+    that:
+      - openvpn_cipher in ['AES-256-GCM', 'AES-128-GCM', 'AES-256-CBC', 'AES-128-CBC']
+      - openvpn_auth in ['SHA256', 'SHA512', 'SHA1']
+    fail_msg: "Invalid cipher or authentication algorithm"

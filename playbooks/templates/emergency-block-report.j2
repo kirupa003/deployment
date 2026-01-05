@@ -1,0 +1,26 @@
+# Emergency IP Blocking Report
+
+**Emergency ID:** {{ blocking_summary.emergency_id }}
+**Server:** {{ inventory_hostname }}
+**Timestamp:** {{ ansible_date_time.iso8601 }}
+
+## Blocked IPs
+{% for ip in blocking_summary.blocked_ips %}
+- {{ ip }}
+{% endfor %}
+
+## Block Details
+- **Reason:** {{ blocking_summary.block_reason }}
+- **Duration:** {{ blocking_summary.block_duration }}
+
+## Blocking Methods Applied
+{% for method in blocking_summary.methods_applied %}
+- {{ method }}
+{% endfor %}
+
+## Verification Results
+{% for result in blocking_summary.verification_results %}
+- Test {{ loop.index }}: {{ 'BLOCKED' if result != 0 else 'FAILED' }}
+{% endfor %}
+
+Emergency blocking completed successfully.

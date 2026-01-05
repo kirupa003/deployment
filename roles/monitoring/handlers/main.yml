@@ -1,0 +1,26 @@
+---
+- name: restart grafana
+  systemd:
+    name: grafana-server
+    state: restarted
+  become: true
+
+- name: reload grafana
+  systemd:
+    name: grafana-server
+    state: reloaded
+  become: true
+
+- name: restart prometheus
+  systemd:
+    name: prometheus
+    state: restarted
+  become: true
+  when: monitoring_prometheus_enabled | default(false)
+
+- name: restart alertmanager
+  systemd:
+    name: alertmanager
+    state: restarted
+  become: true
+  when: monitoring_alerts_enabled

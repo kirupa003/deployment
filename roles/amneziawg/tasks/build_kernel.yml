@@ -1,0 +1,72 @@
+---
+# Build AmneziaWG Kernel Module
+
+- name: Clone AmneziaWG kernel module repository
+  git:
+    repo: "{{ amneziawg_repo_url }}"
+    dest: "{{ amneziawg_build_dir }}"
+    version: "{{ amneziawg_version }}"
+    force: true
+  become: true
+
+- name: Check if kernel module needs rebuilding
+  stat:
+    path: "{{ amneziawg_build_dir }}/src/amneziawg.ko"
+  register: kernel_module_check
+
+- name: Get current kernel version
+  command: uname -r
+  register: current_kernel
+  changed_when: false
+
+- name: Check if module is built for current kernel
+  shell: |
+    if [[ -f "{{ amneziawg_build_dir }}/src/amneziawg.ko" ]]; then
+      modinfo "{{ amneziawg_build_dir }}/src/amneziawg.ko" | grep vermagic | grep "{{ current_kernel.stdout }}"
+    else
+      exit 1
+    fi
+  register: module_kernel_check
+  failed_when: false
+  changed_when: false
+
+- name: Clean previous build if kernel version changed
+  command: make clean
+  args:
+    chdir: "{{ amneziawg_build_dir }}/src"
+  become: true
+  when: module_kernel_check.rc != 0
+
+- name: Build AmneziaWG kernel module
+  command: make
+  args:
+    chdir: "{{ amneziawg_build_dir }}/src"
+  become: true
+  when: not kernel_module_check.stat.exists or module_kernel_check.rc != 0
+  notify:
+    - install kernel module
+    - load amneziawg module
+
+- name: Install AmneziaWG kernel module
+  command: make install
+  args:
+    chdir: "{{ amneziawg_build_dir }}/src"
+  become: true
+  when: not kernel_module_check.stat.exists or module_kernel_check.rc != 0
+
+- name: Update module dependencies
+  command: depmod -a
+  become: true
+  when: not kernel_module_check.stat.exists or module_kernel_check.rc != 0
+
+- name: Load AmneziaWG kernel module
+  modprobe:
+    name: amneziawg
+    state: present
+  become: true
+
+- name: Verify kernel module is loaded
+  command: lsmod | grep amneziawg
+  register: module_loaded_check
+  changed_when: false
+  failed_when: module_loaded_check.rc != 0

@@ -1,0 +1,16 @@
+---
+- name: Enable and start wg_exporter service
+  systemd:
+    name: wg_exporter
+    enabled: "{{ wg_exporter_service_enabled }}"
+    state: "{{ wg_exporter_service_state }}"
+    daemon_reload: true
+  become: true
+
+- name: Wait for wg_exporter to be ready
+  wait_for:
+    port: "{{ wg_exporter_port }}"
+    host: "{{ wg_exporter_listen_address }}"
+    delay: 5
+    timeout: 30
+  when: wg_exporter_service_state == "started"

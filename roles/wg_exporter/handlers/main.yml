@@ -1,0 +1,18 @@
+---
+- name: restart wg_exporter
+  systemd:
+    name: wg_exporter
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload wg_exporter
+  systemd:
+    name: wg_exporter
+    state: reloaded
+  become: true
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+  become: true

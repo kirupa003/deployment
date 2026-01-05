@@ -1,0 +1,69 @@
+---
+# VPN servers group variables
+# Common configuration for all VPN servers
+
+# VPN Infrastructure settings
+vpn_infrastructure:
+  deployment_mode: "production"
+  multi_protocol: true
+  load_balancing: true
+  high_availability: true
+
+# Common VPN settings
+vpn_common:
+  mtu: 1420
+  keepalive: 25
+  dns_servers:
+    - "{{ ansible_default_ipv4.address }}"  # Local CoreDNS
+    - "1.1.1.1"
+    - "8.8.8.8"
+  allowed_ips: "0.0.0.0/0, ::/0"
+  
+# Network configuration
+network:
+  ipv4_forwarding: true
+  ipv6_forwarding: false
+  masquerading: true
+  
+# Security configuration
+security:
+  fail2ban_jails:
+    - sshd
+    - wireguard
+    - openvpn
+  crowdsec_scenarios:
+    - crowdsecurity/ssh-bf
+    - crowdsecurity/http-bf
+    - crowdsecurity/vpn-bf
+  ufw_rules:
+    - { rule: 'allow', port: '22', proto: 'tcp' }  # SSH
+    - { rule: 'allow', port: '53', proto: 'udp' }  # DNS
+    - { rule: 'allow', port: '9100', proto: 'tcp', src: '10.0.0.0/8' }  # Node Exporter
+    
+# Monitoring configuration
+monitoring:
+  exporters:
+    - node_exporter
+    - promtail
+  metrics_retention: "15d"
+  log_level: "info"
+  
+# Backup configuration
+backup:
+  config_backup: true
+  keys_backup: true
+  logs_backup: false
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  
+# Performance settings
+performance:
+  max_clients_per_server: 1000
+  connection_timeout: 30
+  keepalive_timeout: 300
+  
+# Maintenance windows
+maintenance:
+  window_start: "02:00"
+  window_end: "04:00"
+  timezone: "UTC"
+  auto_reboot: false

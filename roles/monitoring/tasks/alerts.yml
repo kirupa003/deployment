@@ -1,0 +1,50 @@
+---
+- name: Create alert rules directory
+  file:
+    path: "{{ monitoring_provisioning_dir }}/alerting"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: '0755'
+  become: true
+
+- name: Generate alert rules configuration
+  template:
+    src: alert-rules.yml.j2
+    dest: "{{ monitoring_provisioning_dir }}/alerting/vpn-alert-rules.yml"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+  notify: reload grafana
+
+- name: Create Prometheus alert rules (if Prometheus is used)
+  template:
+    src: prometheus-alert-rules.yml.j2
+    dest: "/etc/prometheus/rules/vpn-alerts.yml"
+    owner: prometheus
+    group: prometheus
+    mode: '0644'
+  become: true
+  notify: restart prometheus
+  when: monitoring_prometheus_enabled | default(false)
+
+- name: Create alertmanager configuration
+  template:
+    src: alertmanager.yml.j2
+    dest: "/etc/alertmanager/alertmanager.yml"
+    owner: alertmanager
+    group: alertmanager
+    mode: '0644'
+  become: true
+  notify: restart alertmanager
+  when: monitoring_alerts_enabled
+
+- name: Create alert testing script
+  template:
+    src: test-alerts.sh.j2
+    dest: /usr/local/bin/test-vpn-alerts.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true

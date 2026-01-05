@@ -1,0 +1,58 @@
+---
+# WireGuard Server Configuration
+
+- name: Generate WireGuard server configuration
+  template:
+    src: wg0.conf.j2
+    dest: "{{ _wireguard_config_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    backup: true
+  become: true
+  notify: restart wireguard
+
+- name: Create WireGuard interface configuration script
+  template:
+    src: wg-interface.sh.j2
+    dest: /usr/local/bin/wg-interface.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create WireGuard client management script
+  template:
+    src: wg-client-manager.sh.j2
+    dest: /usr/local/bin/wg-client-manager.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create WireGuard status script
+  template:
+    src: wg-status.sh.j2
+    dest: /usr/local/bin/wg-status.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create client configuration template directory
+  file:
+    path: "{{ client_config_dir }}/templates"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create client configuration template
+  template:
+    src: client.conf.j2
+    dest: "{{ client_config_dir }}/templates/client.conf.j2"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

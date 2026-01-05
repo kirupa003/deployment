@@ -1,0 +1,36 @@
+---
+# Update DNS blocklists on all VPN servers
+# Usage: ansible-playbook playbooks/configure/update-blocklists.yml
+
+- name: Update DNS Blocklists
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Download updated blocklists
+      ansible.builtin.get_url:
+        url: "{{ item.url }}"
+        dest: "/var/lib/coredns/{{ item.name }}"
+        mode: "0644"
+        owner: coredns
+        group: coredns
+        force: true
+      loop: "{{ coredns_blocklists }}"
+      when: dns_blocklist_enabled | bool
+      register: blocklist_download
+      tags: [blocklists]
+
+    - name: Reload CoreDNS if blocklists changed
+      ansible.builtin.systemd:
+        name: coredns
+        state: reloaded
+      when: blocklist_download.changed
+      tags: [blocklists]
+
+    - name: Verify CoreDNS is responding
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 53
+        timeout: 10
+      tags: [verify]

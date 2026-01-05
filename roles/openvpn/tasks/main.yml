@@ -1,0 +1,37 @@
+---
+# OpenVPN Role Main Tasks
+
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  failed_when: false
+
+- name: Validate OpenVPN configuration
+  include_tasks: validate.yml
+
+- name: Install OpenVPN packages
+  include_tasks: install.yml
+
+- name: Configure system parameters
+  include_tasks: system.yml
+
+- name: Setup PKI and certificates
+  include_tasks: pki.yml
+
+- name: Configure OpenVPN server
+  include_tasks: configure.yml
+
+- name: Setup firewall rules
+  include_tasks: firewall.yml
+  when: openvpn_firewall_enabled
+
+- name: Setup client management
+  include_tasks: clients.yml
+
+- name: Start and enable OpenVPN services
+  include_tasks: service.yml
+
+- name: Create management scripts
+  include_tasks: scripts.yml
+
+- name: Verify OpenVPN installation
+  include_tasks: verify.yml

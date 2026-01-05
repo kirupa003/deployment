@@ -1,0 +1,27 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: AmneziaWG obfuscated WireGuard implementation
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - vpn
+    - wireguard
+    - amneziawg
+    - obfuscation
+    - networking
+    - security
+
+dependencies:
+  - role: common
+    when: common_role_enabled | default(true)

@@ -1,0 +1,151 @@
+-- {{ ansible_managed }}
+-- DNS Analytics Queries for ClickHouse
+-- Usage: clickhouse-client < /opt/dns-analytics-queries.sql
+
+-- =====================================================
+-- TOP DOMAINS (What users need most)
+-- =====================================================
+
+-- Top 50 domains in last 24 hours
+SELECT
+    domain,
+    count() as queries,
+    uniqExact(client_ip) as unique_users,
+    round(queries / unique_users, 2) as queries_per_user
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+GROUP BY domain
+ORDER BY queries DESC
+LIMIT 50;
+
+-- Top domains by category (extract TLD)
+SELECT
+    splitByChar('.', domain)[-1] as tld,
+    count() as queries
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 7 DAY
+GROUP BY tld
+ORDER BY queries DESC
+LIMIT 20;
+
+
+-- =====================================================
+-- BLOCKED DOMAINS (Ads/Malware being filtered)
+-- =====================================================
+
+-- Top blocked domains
+SELECT
+    domain,
+    count() as block_count
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE blocked = 1 AND timestamp > now() - INTERVAL 24 HOUR
+GROUP BY domain
+ORDER BY block_count DESC
+LIMIT 50;
+
+
+-- =====================================================
+-- USER PATTERNS
+-- =====================================================
+
+-- Queries per hour (traffic patterns)
+SELECT
+    toStartOfHour(timestamp) as hour,
+    count() as queries
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 7 DAY
+GROUP BY hour
+ORDER BY hour;
+
+-- Most active clients
+SELECT
+    client_ip,
+    count() as queries,
+    uniqExact(domain) as unique_domains
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+GROUP BY client_ip
+ORDER BY queries DESC
+LIMIT 20;
+
+
+-- =====================================================
+-- SERVER STATISTICS
+-- =====================================================
+
+-- Queries per VPN server
+SELECT
+    server,
+    region,
+    count() as queries,
+    uniqExact(client_ip) as unique_clients
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+GROUP BY server, region
+ORDER BY queries DESC;
+
+-- Queries per region
+SELECT
+    region,
+    count() as queries,
+    uniqExact(server) as server_count,
+    uniqExact(client_ip) as unique_clients
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+GROUP BY region
+ORDER BY queries DESC;
+
+
+-- =====================================================
+-- STREAMING SERVICES (Popular user needs)
+-- =====================================================
+
+-- Video streaming domains
+SELECT
+    domain,
+    count() as queries
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+  AND (domain LIKE '%netflix%'
+    OR domain LIKE '%youtube%'
+    OR domain LIKE '%hulu%'
+    OR domain LIKE '%disney%'
+    OR domain LIKE '%hbo%'
+    OR domain LIKE '%amazon%'
+    OR domain LIKE '%twitch%'
+    OR domain LIKE '%spotify%')
+GROUP BY domain
+ORDER BY queries DESC;
+
+-- Social media domains
+SELECT
+    domain,
+    count() as queries
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 24 HOUR
+  AND (domain LIKE '%facebook%'
+    OR domain LIKE '%twitter%'
+    OR domain LIKE '%instagram%'
+    OR domain LIKE '%tiktok%'
+    OR domain LIKE '%reddit%'
+    OR domain LIKE '%linkedin%')
+GROUP BY domain
+ORDER BY queries DESC;
+
+
+-- =====================================================
+-- SUMMARY REPORT
+-- =====================================================
+
+-- Daily summary
+SELECT
+    toDate(timestamp) as date,
+    count() as total_queries,
+    uniqExact(client_ip) as unique_users,
+    uniqExact(domain) as unique_domains,
+    countIf(blocked = 1) as blocked_queries,
+    round(blocked_queries * 100.0 / total_queries, 2) as block_rate_pct
+FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+WHERE timestamp > now() - INTERVAL 30 DAY
+GROUP BY date
+ORDER BY date DESC;

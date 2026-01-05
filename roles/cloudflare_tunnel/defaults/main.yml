@@ -1,0 +1,41 @@
+---
+# Cloudflare Tunnel Configuration
+
+# Cloudflare account settings (set in vault)
+cloudflare_account_id: ""
+cloudflare_tunnel_token: ""
+cloudflare_tunnel_name: "vpn-ansible-controller"
+
+# Tunnel installation
+cloudflared_version: "latest"
+cloudflared_install_method: "package"  # package, binary, or docker
+
+# Services to expose through tunnel
+cloudflare_tunnel_ingress:
+  - hostname: "ansible.{{ cloudflare_domain }}"
+    service: "ssh://localhost:22"
+  - hostname: "*.{{ cloudflare_domain }}"
+    service: "http_status:404"
+
+# Domain configuration
+cloudflare_domain: "example.com"
+cloudflare_zone_id: ""
+
+# SSH through browser (optional)
+cloudflare_ssh_browser_enabled: true
+cloudflare_ssh_short_lived_certs: true
+
+# Access policies (Zero Trust)
+cloudflare_access_enabled: true
+cloudflare_access_allowed_emails: []
+cloudflare_access_allowed_domains: []
+cloudflare_access_service_token: false
+
+# System settings
+cloudflared_user: "cloudflared"
+cloudflared_config_dir: "/etc/cloudflared"
+cloudflared_log_level: "info"
+
+# Metrics
+cloudflared_metrics_enabled: true
+cloudflared_metrics_port: 20241

@@ -1,0 +1,16 @@
+---
+# OpenVPN Exporter Configuration
+
+openvpn_exporter_enabled: true
+openvpn_exporter_version: "0.3.0"
+openvpn_exporter_port: 9176
+
+# OpenVPN status file location
+openvpn_exporter_status_file: "/var/log/openvpn/status.log"
+
+# Metrics to expose
+openvpn_exporter_metrics:
+  - connected_clients
+  - bytes_received
+  - bytes_sent
+  - client_connection_time

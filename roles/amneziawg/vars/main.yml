@@ -1,0 +1,38 @@
+---
+# AmneziaWG Role Variables
+
+# OS-specific package names
+_amneziawg_packages:
+  Ubuntu:
+    - build-essential
+    - linux-headers-generic
+    - git
+    - libmnl-dev
+    - libelf-dev
+    - pkg-config
+    - qrencode
+    - iptables-persistent
+    - resolvconf
+    - dkms
+  Debian:
+    - build-essential
+    - linux-headers-amd64
+    - git
+    - libmnl-dev
+    - libelf-dev
+    - pkg-config
+    - qrencode
+    - iptables-persistent
+    - resolvconf
+    - dkms
+
+# Service names by OS
+_amneziawg_service_name: "awg-quick@{{ amneziawg_interface }}"
+
+# Configuration paths
+_amneziawg_config_path: "{{ amneziawg_config_dir }}/{{ amneziawg_interface }}.conf"
+_amneziawg_systemd_path: "/etc/systemd/system/awg-quick@{{ amneziawg_interface }}.service.d"
+
+# Binary paths
+_awg_binary: "{{ amneziawg_bin_dir }}/awg"
+_awg_quick_binary: "{{ amneziawg_bin_dir }}/awg-quick"

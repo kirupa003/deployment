@@ -1,0 +1,49 @@
+---
+# OpenVPN Service Management
+
+- name: Enable OpenVPN UDP service
+  systemd:
+    name: "{{ _openvpn_service_udp }}"
+    enabled: "{{ openvpn_service_enabled }}"
+    daemon_reload: true
+  become: true
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: Enable OpenVPN TCP service
+  systemd:
+    name: "{{ _openvpn_service_tcp }}"
+    enabled: "{{ openvpn_service_enabled }}"
+    daemon_reload: true
+  become: true
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: Start OpenVPN UDP service
+  systemd:
+    name: "{{ _openvpn_service_udp }}"
+    state: "{{ openvpn_service_state }}"
+  become: true
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: Start OpenVPN TCP service
+  systemd:
+    name: "{{ _openvpn_service_tcp }}"
+    state: "{{ openvpn_service_state }}"
+  become: true
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: Create OpenVPN service monitoring script
+  template:
+    src: monitor-openvpn.sh.j2
+    dest: /usr/local/bin/monitor-openvpn.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup OpenVPN monitoring cron job
+  cron:
+    name: "OpenVPN service monitoring"
+    minute: "*/5"
+    job: "/usr/local/bin/monitor-openvpn.sh"
+    user: root
+  become: true

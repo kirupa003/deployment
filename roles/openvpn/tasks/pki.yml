@@ -1,0 +1,123 @@
+---
+# PKI and Certificate Management
+
+- name: Copy Easy-RSA to OpenVPN directory
+  copy:
+    src: "{{ _easyrsa_dir }}/"
+    dest: "{{ openvpn_ca_dir }}/"
+    remote_src: true
+    owner: root
+    group: root
+    mode: preserve
+  become: true
+
+- name: Create Easy-RSA vars file
+  template:
+    src: vars.j2
+    dest: "{{ openvpn_ca_dir }}/vars"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+
+- name: Check if PKI already exists
+  stat:
+    path: "{{ openvpn_pki_dir }}/ca.crt"
+  register: pki_ca_check
+
+- name: Initialize PKI
+  command: "{{ _easyrsa_bin }} init-pki"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/openssl-easyrsa.cnf"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+
+- name: Build Certificate Authority
+  command: "{{ _easyrsa_bin }} build-ca nopass"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/ca.crt"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+    EASYRSA_REQ_CN: "{{ openvpn_ca_org }} CA"
+
+- name: Generate Diffie-Hellman parameters
+  command: "{{ _easyrsa_bin }} gen-dh"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/dh.pem"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+
+- name: Generate server certificate request
+  command: "{{ _easyrsa_bin }} gen-req {{ openvpn_server_name }} nopass"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/private/{{ openvpn_server_name }}.key"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+    EASYRSA_REQ_CN: "{{ openvpn_server_name }}"
+
+- name: Sign server certificate
+  command: "{{ _easyrsa_bin }} sign-req server {{ openvpn_server_name }}"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/issued/{{ openvpn_server_name }}.crt"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+
+- name: Generate TLS authentication key
+  command: openvpn --genkey --secret "{{ openvpn_pki_dir }}/ta.key"
+  args:
+    creates: "{{ openvpn_pki_dir }}/ta.key"
+  become: true
+  when: openvpn_tls_auth
+
+- name: Generate TLS crypt key
+  command: openvpn --genkey --secret "{{ openvpn_pki_dir }}/tls-crypt.key"
+  args:
+    creates: "{{ openvpn_pki_dir }}/tls-crypt.key"
+  become: true
+  when: openvpn_tls_crypt
+
+- name: Generate initial Certificate Revocation List
+  command: "{{ _easyrsa_bin }} gen-crl"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+    creates: "{{ openvpn_pki_dir }}/crl.pem"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"
+
+- name: Set proper permissions on PKI files
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  loop:
+    - "{{ openvpn_pki_dir }}/private/{{ openvpn_server_name }}.key"
+    - "{{ openvpn_pki_dir }}/ca.key"
+    - "{{ openvpn_pki_dir }}/ta.key"
+  ignore_errors: true
+
+- name: Set proper permissions on public certificates
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - "{{ openvpn_pki_dir }}/ca.crt"
+    - "{{ openvpn_pki_dir }}/issued/{{ openvpn_server_name }}.crt"
+    - "{{ openvpn_pki_dir }}/dh.pem"
+    - "{{ openvpn_pki_dir }}/crl.pem"
+  ignore_errors: true

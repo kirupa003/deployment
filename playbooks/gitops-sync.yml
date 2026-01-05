@@ -1,0 +1,272 @@
+---
+# GitOps Configuration Synchronization Playbook
+# Synchronizes configuration from Git repository to target servers
+
+- name: GitOps Configuration Synchronization
+  hosts: localhost
+  gather_facts: false
+  vars:
+    git_repo_url: "{{ gitops_repo_url | default('https://github.com/company/vpn-infrastructure.git') }}"
+    git_branch: "{{ gitops_branch | default('main') }}"
+    config_sync_dir: "{{ playbook_dir }}/../gitops-sync"
+    backup_before_sync: "{{ gitops_backup | default(true) }}"
+    
+  tasks:
+    - name: Create GitOps sync directory
+      file:
+        path: "{{ config_sync_dir }}"
+        state: directory
+        mode: '0755'
+      tags: [setup]
+
+    - name: Clone or update Git repository
+      git:
+        repo: "{{ git_repo_url }}"
+        dest: "{{ config_sync_dir }}/repo"
+        version: "{{ git_branch }}"
+        force: yes
+      tags: [git_sync]
+
+    - name: Get current Git commit information
+      shell: |
+        cd "{{ config_sync_dir }}/repo"
+        echo "commit=$(git rev-parse HEAD)"
+        echo "branch=$(git rev-parse --abbrev-ref HEAD)"
+        echo "author=$(git log -1 --pretty=format:'%an <%ae>')"
+        echo "message=$(git log -1 --pretty=format:'%s')"
+        echo "timestamp=$(git log -1 --pretty=format:'%ci')"
+      register: git_info
+      tags: [git_sync]
+
+    - name: Parse Git information
+      set_fact:
+        git_commit: "{{ git_info.stdout_lines | select('match', '^commit=') | first | regex_replace('^commit=', '') }}"
+        git_branch_actual: "{{ git_info.stdout_lines | select('match', '^branch=') | first | regex_replace('^branch=', '') }}"
+        git_author: "{{ git_info.stdout_lines | select('match', '^author=') | first | regex_replace('^author=', '') }}"
+        git_message: "{{ git_info.stdout_lines | select('match', '^message=') | first | regex_replace('^message=', '') }}"
+        git_timestamp: "{{ git_info.stdout_lines | select('match', '^timestamp=') | first | regex_replace('^timestamp=', '') }}"
+      tags: [git_sync]
+
+    - name: Display Git synchronization information
+      debug:
+        msg: |
+          GitOps Synchronization Information:
+          ==================================
+          Repository: {{ git_repo_url }}
+          Branch: {{ git_branch_actual }}
+          Commit: {{ git_commit[:8] }}
+          Author: {{ git_author }}
+          Message: {{ git_message }}
+          Timestamp: {{ git_timestamp }}
+      tags: [git_sync]
+
+    - name: Create configuration backup before sync
+      shell: |
+        {{ playbook_dir }}/../scripts/backup-configuration.sh backup
+      when: backup_before_sync | bool
+      tags: [backup]
+
+    - name: Validate repository configuration
+      shell: |
+        cd "{{ config_sync_dir }}/repo"
+        python3 scripts/validate-configuration.py
+      register: validation_result
+      failed_when: validation_result.rc != 0
+      tags: [validate]
+
+    - name: Compare current configuration with repository
+      shell: |
+        cd "{{ config_sync_dir }}/repo"
+        ansible-playbook playbooks/multi-protocol-deployment.yml \
+          --inventory inventories/production \
+          --limit "{{ gitops_target_hosts | default('vpn_servers') }}" \
+          --check \
+          --diff
+      register: config_diff
+      failed_when: false
+      tags: [compare]
+
+    - name: Determine if configuration sync is needed
+      set_fact:
+        sync_needed: "{{ config_diff.rc != 0 }}"
+        changes_detected: "{{ 'changed:' in config_diff.stdout }}"
+      tags: [compare]
+
+    - name: Display configuration differences
+      debug:
+        msg: |
+          Configuration Sync Status:
+          =========================
+          Sync needed: {{ sync_needed }}
+          Changes detected: {{ changes_detected }}
+          
+          {% if changes_detected %}
+          Configuration differences detected. Review the diff output above.
+          {% else %}
+          No configuration changes detected.
+          {% endif %}
+      tags: [compare]
+
+- name: Apply Configuration Changes
+  hosts: "{{ gitops_target_hosts | default('vpn_servers') }}"
+  gather_facts: true
+  serial: "{{ gitops_serial | default(5) }}"
+  vars:
+    config_sync_dir: "{{ playbook_dir }}/../gitops-sync"
+    
+  tasks:
+    - name: Check if sync is needed
+      set_fact:
+        sync_needed: "{{ hostvars['localhost']['sync_needed'] | default(false) }}"
+      tags: [sync]
+
+    - name: Skip sync if no changes needed
+      meta: end_host
+      when: not sync_needed
+      tags: [sync]
+
+    - name: Pre-sync health check
+      include_tasks: "{{ playbook_dir }}/tasks/server-health-check.yml"
+      tags: [health_check]
+
+    - name: Sync inventory configuration
+      synchronize:
+        src: "{{ config_sync_dir }}/repo/inventories/"
+        dest: "{{ ansible_env.HOME }}/vpn-infrastructure/inventories/"
+        delete: yes
+        recursive: yes
+        checksum: yes
+      delegate_to: localhost
+      run_once: true
+      tags: [sync]
+
+    - name: Sync playbooks
+      synchronize:
+        src: "{{ config_sync_dir }}/repo/playbooks/"
+        dest: "{{ ansible_env.HOME }}/vpn-infrastructure/playbooks/"
+        delete: yes
+        recursive: yes
+        checksum: yes
+      delegate_to: localhost
+      run_once: true
+      tags: [sync]
+
+    - name: Sync roles
+      synchronize:
+        src: "{{ config_sync_dir }}/repo/roles/"
+        dest: "{{ ansible_env.HOME }}/vpn-infrastructure/roles/"
+        delete: yes
+        recursive: yes
+        checksum: yes
+      delegate_to: localhost
+      run_once: true
+      tags: [sync]
+
+    - name: Apply configuration changes
+      include_tasks: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../roles/wireguard/tasks/configure.yml"
+        - "{{ playbook_dir }}/../roles/openvpn/tasks/configure.yml"
+        - "{{ playbook_dir }}/../roles/coredns/tasks/configure.yml"
+        - "{{ playbook_dir }}/../roles/monitoring/tasks/main.yml"
+      when: 
+        - sync_needed
+        - item | basename | regex_replace('\.yml$', '') in group_names or 'vpn_servers' in group_names
+      tags: [apply_config]
+
+    - name: Restart services if configuration changed
+      service:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - wireguard
+        - openvpn
+        - coredns
+        - node_exporter
+        - promtail
+      when: 
+        - sync_needed
+        - ansible_facts['services'][item] is defined
+        - ansible_facts['services'][item]['state'] == 'running'
+      tags: [restart_services]
+
+    - name: Post-sync health check
+      include_tasks: "{{ playbook_dir }}/tasks/server-health-check.yml"
+      tags: [health_check]
+
+    - name: Validate service functionality
+      uri:
+        url: "{{ item.url }}"
+        method: GET
+        timeout: 10
+      loop:
+        - { url: "http://localhost:9100/metrics", name: "node_exporter" }
+        - { url: "http://localhost:9586/metrics", name: "wg_exporter" }
+        - { url: "http://localhost:9080/metrics", name: "promtail" }
+      when: sync_needed
+      ignore_errors: yes
+      tags: [validate]
+
+- name: GitOps Sync Reporting
+  hosts: localhost
+  gather_facts: false
+  vars:
+    config_sync_dir: "{{ playbook_dir }}/../gitops-sync"
+    
+  tasks:
+    - name: Generate sync report
+      template:
+        src: "{{ playbook_dir }}/templates/gitops-sync-report.j2"
+        dest: "{{ config_sync_dir }}/sync-report-{{ ansible_date_time.epoch }}.md"
+        mode: '0644'
+      vars:
+        sync_timestamp: "{{ ansible_date_time.iso8601 }}"
+        git_commit: "{{ git_commit | default('unknown') }}"
+        git_branch: "{{ git_branch_actual | default('unknown') }}"
+        git_author: "{{ git_author | default('unknown') }}"
+        git_message: "{{ git_message | default('unknown') }}"
+        sync_needed: "{{ sync_needed | default(false) }}"
+        target_hosts: "{{ gitops_target_hosts | default('vpn_servers') }}"
+        changes_applied: "{{ sync_needed | default(false) }}"
+      tags: [report]
+
+    - name: Display sync summary
+      debug:
+        msg: |
+          GitOps Synchronization Complete
+          ==============================
+          
+          Repository: {{ git_repo_url }}
+          Commit: {{ git_commit[:8] if git_commit is defined else 'unknown' }}
+          Branch: {{ git_branch_actual | default('unknown') }}
+          
+          Sync Status: {{ 'APPLIED' if sync_needed | default(false) else 'NO CHANGES' }}
+          Target Hosts: {{ gitops_target_hosts | default('vpn_servers') }}
+          
+          {% if sync_needed | default(false) %}
+          Configuration changes have been applied to target servers.
+          Services have been restarted and validated.
+          {% else %}
+          No configuration changes were needed.
+          {% endif %}
+          
+          Report saved: {{ config_sync_dir }}/sync-report-{{ ansible_date_time.epoch }}.md
+      tags: [report]
+
+    - name: Send notification on sync completion
+      uri:
+        url: "{{ gitops_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: |
+            GitOps Sync Completed
+            Repository: {{ git_repo_url }}
+            Commit: {{ git_commit[:8] if git_commit is defined else 'unknown' }}
+            Status: {{ 'APPLIED' if sync_needed | default(false) else 'NO CHANGES' }}
+            Target: {{ gitops_target_hosts | default('vpn_servers') }}
+      when: 
+        - gitops_webhook_url is defined
+        - sync_needed | default(false)
+      ignore_errors: yes
+      tags: [notify]

@@ -1,0 +1,131 @@
+---
+# Server Rollback Tasks
+# Used when provisioning fails and rollback is requested
+
+- name: Log rollback initiation
+  debug:
+    msg: "Initiating rollback for {{ inventory_hostname }} due to provisioning failure"
+
+- name: Stop any running VPN services
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - wg-quick@wg0
+    - openvpn@server
+    - awg-quick@awg0
+  ignore_errors: yes
+
+- name: Stop monitoring services
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - node_exporter
+    - promtail
+    - wg_exporter
+  ignore_errors: yes
+
+- name: Stop security services
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - crowdsec
+    - fail2ban
+  ignore_errors: yes
+
+- name: Remove VPN configurations
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/wireguard/
+    - /etc/openvpn/
+    - /etc/amneziawg/
+  ignore_errors: yes
+
+- name: Remove monitoring configurations
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/prometheus/
+    - /etc/promtail/
+    - /opt/wg_exporter/
+  ignore_errors: yes
+
+- name: Remove security configurations
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/crowdsec/
+    - /etc/fail2ban/jail.d/
+  ignore_errors: yes
+
+- name: Reset firewall to defaults
+  ufw:
+    state: reset
+  ignore_errors: yes
+
+- name: Remove installed packages
+  package:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - wireguard
+    - wireguard-tools
+    - openvpn
+    - easy-rsa
+    - prometheus-node-exporter
+    - crowdsec
+  ignore_errors: yes
+
+- name: Clean up provisioning directories
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /opt/vpn-provisioning/
+    - /opt/wg_exporter/
+    - /opt/crowdsec/
+  ignore_errors: yes
+
+- name: Restore original SSH configuration
+  copy:
+    src: /etc/ssh/sshd_config.orig
+    dest: /etc/ssh/sshd_config
+    remote_src: yes
+  when: ansible_facts.stat.exists is defined
+  ignore_errors: yes
+
+- name: Restart SSH service
+  systemd:
+    name: ssh
+    state: restarted
+  ignore_errors: yes
+
+- name: Remove rollback artifacts
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/ssh/sshd_config.orig
+    - /tmp/provisioning-*
+  ignore_errors: yes
+
+- name: Mark rollback completion
+  copy:
+    content: |
+      ROLLBACK_COMPLETED={{ ansible_date_time.iso8601 }}
+      REASON=Provisioning failure
+      ROLLED_BACK_BY={{ ansible_user_id }}
+    dest: /tmp/rollback-status.txt
+
+- name: Log rollback completion
+  debug:
+    msg: "Rollback completed for {{ inventory_hostname }} at {{ ansible_date_time.iso8601 }}"

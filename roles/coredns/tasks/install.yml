@@ -1,0 +1,53 @@
+---
+- name: Check if CoreDNS is already installed
+  stat:
+    path: "{{ coredns_home }}/coredns"
+  register: coredns_binary
+
+- name: Get installed CoreDNS version
+  command: "{{ coredns_home }}/coredns -version"
+  register: installed_version
+  changed_when: false
+  failed_when: false
+  when: coredns_binary.stat.exists
+
+- name: Download CoreDNS binary
+  get_url:
+    url: "https://github.com/coredns/coredns/releases/download/v{{ coredns_version }}/coredns_{{ coredns_version }}_linux_amd64.tgz"
+    dest: "/tmp/coredns_{{ coredns_version }}_linux_amd64.tgz"
+    mode: '0644'
+    timeout: 30
+  become: yes
+  when: not coredns_binary.stat.exists or coredns_version not in (installed_version.stdout | default(''))
+
+- name: Extract CoreDNS binary
+  unarchive:
+    src: "/tmp/coredns_{{ coredns_version }}_linux_amd64.tgz"
+    dest: "{{ coredns_home }}"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0755'
+    remote_src: yes
+  become: yes
+  when: not coredns_binary.stat.exists or coredns_version not in (installed_version.stdout | default(''))
+  notify: restart coredns
+
+- name: Create CoreDNS binary symlink
+  file:
+    src: "{{ coredns_home }}/coredns"
+    dest: /usr/local/bin/coredns
+    state: link
+  become: yes
+
+- name: Set capabilities for CoreDNS to bind to privileged ports
+  capabilities:
+    path: "{{ coredns_home }}/coredns"
+    capability: cap_net_bind_service+ep
+    state: present
+  become: yes
+
+- name: Clean up downloaded archive
+  file:
+    path: "/tmp/coredns_{{ coredns_version }}_linux_amd64.tgz"
+    state: absent
+  become: yes

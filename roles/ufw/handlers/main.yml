@@ -1,0 +1,25 @@
+---
+- name: restart ufw
+  ufw:
+    state: reloaded
+  become: true
+
+- name: reload ufw
+  ufw:
+    state: reloaded
+  become: true
+
+- name: enable ufw
+  ufw:
+    state: enabled
+  become: true
+
+- name: disable ufw
+  ufw:
+    state: disabled
+  become: true
+
+- name: reset ufw
+  ufw:
+    state: reset
+  become: true

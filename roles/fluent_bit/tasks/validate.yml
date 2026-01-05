@@ -1,0 +1,67 @@
+---
+- name: Check fluent-bit service status
+  systemd:
+    name: fluent-bit
+  register: fluent_bit_service_status
+  become: true
+
+- name: Verify fluent-bit is running
+  assert:
+    that:
+      - fluent_bit_service_status.status.ActiveState == "active"
+      - fluent_bit_service_status.status.SubState == "running"
+    fail_msg: "Fluent Bit service is not running properly"
+    success_msg: "Fluent Bit service is running correctly"
+
+- name: Test fluent-bit HTTP API endpoint
+  uri:
+    url: "http://{{ fluent_bit_listen_address }}:{{ fluent_bit_port }}/api/v1/health"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: fluent_bit_health_test
+  retries: 3
+  delay: 5
+
+- name: Test fluent-bit metrics endpoint
+  uri:
+    url: "http://{{ fluent_bit_listen_address }}:{{ fluent_bit_port }}/api/v1/metrics/prometheus"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: fluent_bit_metrics_test
+  retries: 3
+  delay: 5
+
+- name: Verify fluent-bit metrics are available
+  assert:
+    that:
+      - "'fluentbit_' in fluent_bit_metrics_test.content"
+    fail_msg: "Fluent Bit metrics are not available"
+    success_msg: "Fluent Bit is exposing metrics correctly"
+
+- name: Check fluent-bit configuration syntax
+  command: "/usr/bin/fluent-bit --config={{ fluent_bit_config_dir }}/fluent-bit.conf --dry-run"
+  register: fluent_bit_config_check
+  changed_when: false
+  become: true
+  become_user: "{{ fluent_bit_user }}"
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Verify configuration is valid
+  assert:
+    that:
+      - fluent_bit_config_check.rc == 0
+    fail_msg: "Fluent Bit configuration is invalid: {{ fluent_bit_config_check.stderr }}"
+    success_msg: "Fluent Bit configuration is valid"
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Display fluent-bit status
+  debug:
+    msg:
+      - "Fluent Bit Status: {{ fluent_bit_service_status.status.ActiveState }}"
+      - "Fluent Bit Version: {{ fluent_bit_version }}"
+      - "HTTP API Endpoint: http://{{ ansible_default_ipv4.address }}:{{ fluent_bit_port }}"
+      - "ClickHouse Target: {{ fluent_bit_clickhouse_host }}:{{ fluent_bit_clickhouse_port }}"
+      - "Database: {{ fluent_bit_clickhouse_database }}.{{ fluent_bit_clickhouse_table }}"
+      - "DNS Log Paths: {{ fluent_bit_dns_log_paths | length }} configured"

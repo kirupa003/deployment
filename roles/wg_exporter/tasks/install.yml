@@ -1,0 +1,60 @@
+---
+- name: Check if wg_exporter is already installed
+  stat:
+    path: "{{ wg_exporter_binary_path }}"
+  register: wg_exporter_binary
+
+- name: Get installed wg_exporter version
+  command: "{{ wg_exporter_binary_path }} --version"
+  register: wg_exporter_installed_version
+  changed_when: false
+  failed_when: false
+  when: wg_exporter_binary.stat.exists
+
+- name: Set wg_exporter installation needed flag
+  set_fact:
+    wg_exporter_install_needed: >-
+      {{
+        not wg_exporter_binary.stat.exists or
+        wg_exporter_version not in wg_exporter_installed_version.stdout | default('')
+      }}
+
+- name: Download wg_exporter binary
+  get_url:
+    url: "https://github.com/MindFlavor/prometheus_wireguard_exporter/releases/download/{{ wg_exporter_version }}/prometheus_wireguard_exporter-{{ wg_exporter_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/prometheus_wireguard_exporter-{{ wg_exporter_version }}-linux-amd64.tar.gz"
+    mode: '0644'
+    timeout: 30
+  when: wg_exporter_install_needed
+  become: true
+
+- name: Extract wg_exporter binary
+  unarchive:
+    src: "/tmp/prometheus_wireguard_exporter-{{ wg_exporter_version }}-linux-amd64.tar.gz"
+    dest: "/tmp"
+    remote_src: true
+    creates: "/tmp/prometheus_wireguard_exporter"
+  when: wg_exporter_install_needed
+  become: true
+
+- name: Install wg_exporter binary
+  copy:
+    src: "/tmp/prometheus_wireguard_exporter"
+    dest: "{{ wg_exporter_binary_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+  when: wg_exporter_install_needed
+  become: true
+  notify: restart wg_exporter
+
+- name: Clean up downloaded files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/prometheus_wireguard_exporter-{{ wg_exporter_version }}-linux-amd64.tar.gz"
+    - "/tmp/prometheus_wireguard_exporter"
+  when: wg_exporter_install_needed
+  become: true

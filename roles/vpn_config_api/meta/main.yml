@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  author: DevOps Team
+  description: REST API for centralized VPN configuration management
+  license: MIT
+  min_ansible_version: "2.12"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+
+dependencies: []

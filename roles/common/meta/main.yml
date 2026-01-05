@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: Common configuration for all servers
+  company: Planet Proxy
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - system
+    - common
+    - configuration
+
+dependencies: []

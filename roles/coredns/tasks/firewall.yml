@@ -1,0 +1,28 @@
+---
+- name: Configure UFW firewall rules for CoreDNS
+  ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.protocol }}"
+    src: "{{ item.source if item.source != 'any' else omit }}"
+    comment: "{{ item.comment }}"
+  become: yes
+  loop: "{{ coredns_firewall_rules }}"
+  notify: update firewall rules
+  when: ansible_os_family == "Debian"
+
+- name: Configure iptables rules for CoreDNS (CentOS/RHEL)
+  iptables:
+    chain: INPUT
+    protocol: "{{ item.protocol }}"
+    destination_port: "{{ item.port }}"
+    jump: ACCEPT
+    comment: "{{ item.comment }}"
+  become: yes
+  loop: "{{ coredns_firewall_rules }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Save iptables rules (CentOS/RHEL)
+  command: iptables-save > /etc/sysconfig/iptables
+  become: yes
+  when: ansible_os_family == "RedHat"

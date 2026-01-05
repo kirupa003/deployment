@@ -1,0 +1,60 @@
+---
+- name: Check if node_exporter is already installed
+  stat:
+    path: "{{ node_exporter_binary_path }}"
+  register: node_exporter_binary
+
+- name: Get installed node_exporter version
+  command: "{{ node_exporter_binary_path }} --version"
+  register: node_exporter_installed_version
+  changed_when: false
+  failed_when: false
+  when: node_exporter_binary.stat.exists
+
+- name: Set node_exporter installation needed flag
+  set_fact:
+    node_exporter_install_needed: >-
+      {{
+        not node_exporter_binary.stat.exists or
+        node_exporter_version not in node_exporter_installed_version.stderr | default('')
+      }}
+
+- name: Download node_exporter binary
+  get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    mode: '0644'
+    timeout: 30
+  when: node_exporter_install_needed
+  become: true
+
+- name: Extract node_exporter binary
+  unarchive:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp"
+    remote_src: true
+    creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+  when: node_exporter_install_needed
+  become: true
+
+- name: Install node_exporter binary
+  copy:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64/node_exporter"
+    dest: "{{ node_exporter_binary_path }}"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+  when: node_exporter_install_needed
+  become: true
+  notify: restart node_exporter
+
+- name: Clean up downloaded files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    - "/tmp/node_exporter-{{ node_exporter_version }}.linux-amd64"
+  when: node_exporter_install_needed
+  become: true

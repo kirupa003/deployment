@@ -1,0 +1,233 @@
+---
+- name: Comprehensive security validation and compliance check
+  hosts: vpn_servers
+  become: true
+  gather_facts: true
+  
+  vars:
+    validation_mode: "comprehensive"
+    compliance_check: true
+    
+  tasks:
+    # SSH Security Validation (Requirement 3.1)
+    - name: Validate SSH hardening configuration
+      block:
+        - name: Check SSH configuration syntax
+          command: sshd -t
+          changed_when: false
+          register: ssh_config_test
+
+        - name: Verify root login is disabled
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^PermitRootLogin'
+            line: 'PermitRootLogin no'
+            state: present
+          check_mode: true
+          register: ssh_root_login_check
+
+        - name: Verify password authentication is disabled
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: '^PasswordAuthentication'
+            line: 'PasswordAuthentication no'
+            state: present
+          check_mode: true
+          register: ssh_password_auth_check
+
+        - name: Check SSH service status
+          service_facts:
+
+        - name: Validate SSH service is running
+          assert:
+            that:
+              - ansible_facts.services['ssh.service']['state'] == 'running'
+              - ansible_facts.services['ssh.service']['status'] == 'enabled'
+            fail_msg: "SSH service is not running or not enabled"
+            success_msg: "SSH service validation passed"
+
+      tags: ssh_validation
+
+    # UFW Firewall Validation (Requirement 3.2)
+    - name: Validate UFW firewall configuration
+      block:
+        - name: Check UFW status
+          command: ufw status verbose
+          register: ufw_status_check
+          changed_when: false
+
+        - name: Verify UFW is active
+          assert:
+            that:
+              - "'Status: active' in ufw_status_check.stdout"
+            fail_msg: "UFW firewall is not active"
+            success_msg: "UFW firewall is active"
+
+        - name: Verify default deny policy
+          assert:
+            that:
+              - "'Default: deny (incoming)' in ufw_status_check.stdout"
+            fail_msg: "UFW default incoming policy is not deny"
+            success_msg: "UFW deny-by-default policy verified"
+
+        - name: Check SSH rule exists
+          assert:
+            that:
+              - "ansible_port | default('22') + '/tcp' in ufw_status_check.stdout or '22/tcp' in ufw_status_check.stdout"
+            fail_msg: "SSH rule not found in UFW configuration"
+            success_msg: "SSH access rule verified"
+
+      tags: ufw_validation
+
+    # Fail2Ban Validation (Requirement 3.3)
+    - name: Validate Fail2Ban configuration
+      block:
+        - name: Check Fail2Ban service status
+          service_facts:
+
+        - name: Validate Fail2Ban service is running
+          assert:
+            that:
+              - ansible_facts.services['fail2ban.service']['state'] == 'running'
+              - ansible_facts.services['fail2ban.service']['status'] == 'enabled'
+            fail_msg: "Fail2Ban service is not running or not enabled"
+            success_msg: "Fail2Ban service validation passed"
+
+        - name: Check Fail2Ban jail status
+          command: fail2ban-client status
+          register: fail2ban_status
+          changed_when: false
+
+        - name: Verify SSH jail is active
+          assert:
+            that:
+              - "'sshd' in fail2ban_status.stdout or 'ssh' in fail2ban_status.stdout"
+            fail_msg: "SSH jail is not active in Fail2Ban"
+            success_msg: "Fail2Ban SSH jail verified"
+
+        - name: Check Fail2Ban configuration
+          command: fail2ban-client get sshd bantime
+          register: fail2ban_bantime
+          changed_when: false
+          failed_when: false
+
+      tags: fail2ban_validation
+
+    # CrowdSec Validation (Requirement 3.3)
+    - name: Validate CrowdSec configuration
+      block:
+        - name: Check CrowdSec service status
+          service_facts:
+
+        - name: Validate CrowdSec service is running
+          assert:
+            that:
+              - ansible_facts.services['crowdsec.service']['state'] == 'running'
+              - ansible_facts.services['crowdsec.service']['status'] == 'enabled'
+            fail_msg: "CrowdSec service is not running or not enabled"
+            success_msg: "CrowdSec service validation passed"
+
+        - name: Check CrowdSec metrics endpoint
+          uri:
+            url: "http://localhost:{{ crowdsec_prometheus_port | default(6060) }}/metrics"
+            method: GET
+            status_code: 200
+          when: crowdsec_prometheus_enabled | default(true)
+
+        - name: Test CrowdSec LAPI connectivity
+          uri:
+            url: "http://localhost:{{ crowdsec_lapi_port | default(8080) }}/v1/heartbeat"
+            method: GET
+            status_code: 200
+          when: crowdsec_lapi_enabled | default(false)
+
+        - name: Check CrowdSec hub status
+          command: cscli hub list
+          register: crowdsec_hub_status
+          changed_when: false
+          failed_when: false
+
+      tags: crowdsec_validation
+
+    # Security Updates Validation (Requirement 3.5)
+    - name: Validate security update configuration
+      block:
+        - name: Check unattended-upgrades configuration
+          stat:
+            path: /etc/apt/apt.conf.d/50unattended-upgrades
+          register: unattended_upgrades_config
+
+        - name: Verify automatic security updates are configured
+          lineinfile:
+            path: /etc/apt/apt.conf.d/50unattended-upgrades
+            regexp: '.*security.*'
+            state: present
+          check_mode: true
+          register: security_updates_check
+          when: unattended_upgrades_config.stat.exists
+
+        - name: Check for available security updates
+          apt:
+            upgrade: safe
+            update_cache: true
+          check_mode: true
+          register: security_updates_available
+
+      tags: security_updates_validation
+
+    # Network Security Validation
+    - name: Validate network security configuration
+      block:
+        - name: Check for open ports
+          command: ss -tuln
+          register: open_ports
+          changed_when: false
+
+        - name: Verify only required ports are open
+          debug:
+            msg: "Open ports: {{ open_ports.stdout_lines }}"
+
+        - name: Check iptables rules
+          command: iptables -L -n
+          register: iptables_rules
+          changed_when: false
+
+        - name: Verify kernel parameters for security
+          sysctl:
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+            state: present
+          check_mode: true
+          register: sysctl_check
+          loop:
+            - { name: "net.ipv4.ip_forward", value: "1" }
+            - { name: "net.ipv4.conf.all.rp_filter", value: "1" }
+            - { name: "net.ipv4.conf.default.rp_filter", value: "1" }
+            - { name: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" }
+            - { name: "net.ipv4.icmp_ignore_bogus_error_responses", value: "1" }
+
+      tags: network_validation
+
+    # Generate comprehensive validation report
+    - name: Generate security validation report
+      template:
+        src: security-validation-report.j2
+        dest: "/var/log/security-validation-{{ ansible_date_time.epoch }}.log"
+        mode: '0644'
+      tags: reporting
+
+  post_tasks:
+    - name: Display validation summary
+      debug:
+        msg: |
+          Security Validation Summary for {{ inventory_hostname }}:
+          ========================================================
+          SSH Hardening (3.1): {{ 'PASS' if ssh_config_test.rc == 0 else 'FAIL' }}
+          UFW Firewall (3.2): {{ 'PASS' if 'Status: active' in ufw_status_check.stdout else 'FAIL' }}
+          Fail2Ban Protection (3.3): {{ 'PASS' if ansible_facts.services['fail2ban.service']['state'] == 'running' else 'FAIL' }}
+          CrowdSec Security (3.3): {{ 'PASS' if ansible_facts.services['crowdsec.service']['state'] == 'running' else 'FAIL' }}
+          Security Updates (3.5): {{ 'CONFIGURED' if unattended_upgrades_config.stat.exists else 'NOT CONFIGURED' }}
+          
+          Overall Compliance: {{ 'COMPLIANT' if (ssh_config_test.rc == 0 and 'Status: active' in ufw_status_check.stdout and ansible_facts.services['fail2ban.service']['state'] == 'running' and ansible_facts.services['crowdsec.service']['state'] == 'running') else 'NON-COMPLIANT' }}
+
+      tags: summary

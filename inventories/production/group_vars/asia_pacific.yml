@@ -1,0 +1,59 @@
+---
+# Asia Pacific region configuration
+
+# Regional settings
+region:
+  name: "asia_pacific"
+  code: "ap"
+  timezone: "Asia/Tokyo"
+  total_servers: 8
+  
+# Network configuration
+network:
+  region_subnet: "10.3.0.0/16"
+  wireguard_subnet: "10.3.1.0/24"
+  openvpn_subnet: "10.3.2.0/24"
+  amneziawg_subnet: "10.3.3.0/24"
+  
+# DNS settings
+dns:
+  primary_servers:
+    - "8.8.8.8"      # Google
+    - "1.1.1.1"      # Cloudflare
+  secondary_servers:
+    - "208.67.222.222"  # OpenDNS
+    - "9.9.9.9"      # Quad9
+    
+# NTP servers for Asia Pacific
+ntp_servers:
+  - "asia.pool.ntp.org"
+  - "time.google.com"
+  
+# Monitoring endpoints
+monitoring:
+  prometheus_endpoint: "prometheus-ap.monitoring.local"
+  loki_endpoint: "loki-ap.monitoring.local"
+  grafana_endpoint: "grafana-ap.monitoring.local"
+  
+# Backup configuration
+backup:
+  s3_region: "ap-southeast-1"
+  s3_bucket: "vpn-backups-asia-pacific"
+  
+# Compliance settings
+compliance:
+  data_localization: true
+  data_retention_days: 60
+  log_anonymization: true
+  
+# Performance settings
+performance:
+  max_bandwidth_mbps: 500
+  connection_limit_per_ip: 3
+  rate_limit_enabled: true
+  
+# Anti-censorship settings (enhanced for this region)
+anti_censorship:
+  amneziawg_priority: true
+  obfuscation_level: "high"
+  port_randomization: true

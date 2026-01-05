@@ -1,0 +1,17 @@
+---
+# Default variables for hardening role
+
+ssh_allowed_users:
+  - ansible
+
+ssh_allowed_groups:
+  - sudo
+
+services_to_disable:
+  - avahi-daemon
+  - cups
+  - rpcbind
+
+monitoring_network: "10.0.0.0/8"
+
+firewall_vpn_ports: []

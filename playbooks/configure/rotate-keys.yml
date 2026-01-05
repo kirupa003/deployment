@@ -1,0 +1,117 @@
+---
+# Rotate VPN server keys
+# Usage: ansible-playbook playbooks/configure/rotate-keys.yml --limit eu_wireguard
+
+- name: Rotate VPN Server Keys
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  serial: 10
+
+  vars_prompt:
+    - name: confirm_rotation
+      prompt: "This will rotate VPN keys and briefly disconnect clients. Continue? (yes/no)"
+      private: false
+
+  pre_tasks:
+    - name: Abort if not confirmed
+      ansible.builtin.fail:
+        msg: "Key rotation cancelled by user"
+      when: confirm_rotation != "yes"
+
+  tasks:
+    - name: Rotate WireGuard keys
+      when: vpn_protocol == 'wireguard'
+      block:
+        - name: Generate new WireGuard private key
+          ansible.builtin.command:
+            cmd: wg genkey
+          register: new_private_key
+          no_log: true
+          changed_when: false
+
+        - name: Generate new WireGuard public key
+          ansible.builtin.shell:
+            cmd: echo "{{ new_private_key.stdout }}" | wg pubkey
+          register: new_public_key
+          no_log: true
+          changed_when: false
+
+        - name: Store new keys in Vault
+          community.hashi_vault.vault_kv2_write:
+            url: "{{ vault_addr }}"
+            path: "vpn/wireguard/{{ inventory_hostname }}"
+            data:
+              private_key: "{{ new_private_key.stdout }}"
+              public_key: "{{ new_public_key.stdout }}"
+          delegate_to: localhost
+          become: false
+
+        - name: Update WireGuard configuration
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../../roles/wireguard/templates/wg0.conf.j2"
+            dest: "/etc/wireguard/{{ wireguard_interface }}.conf"
+            owner: root
+            group: root
+            mode: "0600"
+          vars:
+            wireguard_private_key_actual: "{{ new_private_key.stdout }}"
+
+        - name: Restart WireGuard
+          ansible.builtin.systemd:
+            name: "wg-quick@{{ wireguard_interface }}"
+            state: restarted
+
+    - name: Rotate AmneziaWG keys
+      when: vpn_protocol == 'amneziawg'
+      block:
+        - name: Generate new AmneziaWG private key
+          ansible.builtin.command:
+            cmd: awg genkey
+          register: new_private_key
+          no_log: true
+          changed_when: false
+
+        - name: Generate new AmneziaWG public key
+          ansible.builtin.shell:
+            cmd: echo "{{ new_private_key.stdout }}" | awg pubkey
+          register: new_public_key
+          no_log: true
+          changed_when: false
+
+        - name: Store new keys in Vault
+          community.hashi_vault.vault_kv2_write:
+            url: "{{ vault_addr }}"
+            path: "vpn/amneziawg/{{ inventory_hostname }}"
+            data:
+              private_key: "{{ new_private_key.stdout }}"
+              public_key: "{{ new_public_key.stdout }}"
+          delegate_to: localhost
+          become: false
+
+        - name: Update AmneziaWG configuration
+          ansible.builtin.template:
+            src: "{{ playbook_dir }}/../../roles/amneziawg/templates/awg0.conf.j2"
+            dest: "/etc/amneziawg/{{ amneziawg_interface }}.conf"
+            owner: root
+            group: root
+            mode: "0600"
+          vars:
+            amneziawg_private_key_actual: "{{ new_private_key.stdout }}"
+
+        - name: Restart AmneziaWG
+          ansible.builtin.systemd:
+            name: "awg-quick@{{ amneziawg_interface }}"
+            state: restarted
+
+  post_tasks:
+    - name: Verify VPN service is running
+      ansible.builtin.command:
+        cmd: "{{ 'wg' if vpn_protocol == 'wireguard' else 'awg' }} show"
+      register: vpn_status
+      changed_when: false
+      when: vpn_protocol in ['wireguard', 'amneziawg']
+
+    - name: Report key rotation complete
+      ansible.builtin.debug:
+        msg: "Key rotation complete for {{ inventory_hostname }}"

@@ -1,0 +1,61 @@
+---
+# Deploy AmneziaWG VPN servers (WireGuard with obfuscation)
+# Usage: ansible-playbook playbooks/deploy/amneziawg.yml
+
+- name: Deploy AmneziaWG VPN Servers
+  hosts: amneziawg_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify target hosts
+      ansible.builtin.debug:
+        msg: "Deploying AmneziaWG to {{ inventory_hostname }} in {{ vpn_region }}"
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+      vars:
+        firewall_vpn_ports:
+          - { port: "{{ amneziawg_port | default(51821) }}", proto: udp }
+
+    - role: amneziawg
+      tags: [amneziawg]
+
+    - role: coredns
+      tags: [dns]
+
+    - role: node_exporter
+      tags: [monitoring]
+
+    - role: wg_exporter
+      tags: [monitoring]
+      vars:
+        wg_exporter_interfaces:
+          - "{{ amneziawg_interface | default('awg0') }}"
+
+    - role: promtail
+      tags: [logging]
+
+    - role: fluent_bit
+      tags: [logging]
+
+    - role: crowdsec
+      tags: [security]
+
+    - role: fail2ban
+      tags: [security]
+
+  post_tasks:
+    - name: Display AmneziaWG status
+      ansible.builtin.command:
+        cmd: awg show
+      register: awg_status
+      changed_when: false
+
+    - name: Show AmneziaWG configuration
+      ansible.builtin.debug:
+        var: awg_status.stdout_lines

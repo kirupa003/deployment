@@ -1,0 +1,62 @@
+---
+# WireGuard Service Management
+
+- name: Enable WireGuard service
+  systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    enabled: "{{ wireguard_service_enabled }}"
+    daemon_reload: true
+  become: true
+
+- name: Start WireGuard service
+  systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: "{{ wireguard_service_state }}"
+  become: true
+
+- name: Create WireGuard service monitoring script
+  template:
+    src: monitor-wireguard.sh.j2
+    dest: /usr/local/bin/monitor-wireguard.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup WireGuard monitoring cron job
+  cron:
+    name: "WireGuard service monitoring"
+    minute: "*/5"
+    job: "/usr/local/bin/monitor-wireguard.sh"
+    user: root
+  become: true
+
+- name: Create WireGuard logrotate configuration
+  copy:
+    content: |
+      /var/log/wireguard/*.log {
+          daily
+          missingok
+          rotate 30
+          compress
+          delaycompress
+          notifempty
+          create 0644 root root
+          postrotate
+              systemctl reload rsyslog > /dev/null 2>&1 || true
+          endscript
+      }
+    dest: /etc/logrotate.d/wireguard
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Create WireGuard log directory
+  file:
+    path: /var/log/wireguard
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true

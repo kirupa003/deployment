@@ -1,0 +1,109 @@
+---
+# UFW firewall configuration
+
+# Service configuration
+ufw_enabled: true
+ufw_state: enabled
+ufw_policy_direction: incoming
+ufw_policy_policy: deny
+ufw_logging: "on"
+
+# Default policies
+ufw_default_input_policy: deny
+ufw_default_output_policy: allow
+ufw_default_forward_policy: deny
+ufw_default_routed_policy: deny
+
+# SSH configuration
+ufw_ssh_port: "{{ ansible_port | default('22') }}"
+ufw_ssh_rule: allow
+ufw_ssh_src: any
+
+# OpenVPN configuration
+ufw_openvpn_enabled: true
+ufw_openvpn_port: "1194"
+ufw_openvpn_proto: udp
+
+# WireGuard configuration
+ufw_wireguard_enabled: true
+ufw_wireguard_port: "51820"
+ufw_wireguard_proto: udp
+
+# AmneziaWG configuration
+ufw_amneziawg_enabled: false
+ufw_amneziawg_port: "51821"
+ufw_amneziawg_proto: udp
+
+# Monitoring ports
+ufw_node_exporter_enabled: true
+ufw_node_exporter_port: "9100"
+ufw_node_exporter_src: "{{ monitoring_allowed_ips | default(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']) }}"
+
+ufw_wg_exporter_enabled: true
+ufw_wg_exporter_port: "9586"
+ufw_wg_exporter_src: "{{ monitoring_allowed_ips | default(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']) }}"
+
+# DNS configuration
+ufw_dns_enabled: true
+ufw_dns_port: "53"
+
+# NTP configuration
+ufw_ntp_enabled: true
+ufw_ntp_port: "123"
+
+# HTTP/HTTPS for Let's Encrypt and management
+ufw_http_enabled: false
+ufw_http_port: "80"
+ufw_https_enabled: false
+ufw_https_port: "443"
+
+# Custom rules
+ufw_rules: []
+# Example:
+# ufw_rules:
+#   - rule: allow
+#     port: "8080"
+#     proto: tcp
+#     src: "192.168.1.0/24"
+#     comment: "Custom application"
+
+# Rate limiting
+ufw_rate_limit_enabled: true
+ufw_rate_limit_ssh: true
+
+# Application profiles
+ufw_applications: []
+# Example:
+# ufw_applications:
+#   - name: "OpenSSH"
+#     rule: allow
+#   - name: "Nginx Full"
+#     rule: allow
+
+# Interface-specific rules
+ufw_interface_rules: []
+# Example:
+# ufw_interface_rules:
+#   - interface: "wg0"
+#     direction: "in"
+#     rule: "allow"
+#   - interface: "tun0"
+#     direction: "in"
+#     rule: "allow"
+
+# Trusted networks (always allowed)
+ufw_trusted_networks:
+  - "127.0.0.0/8"
+  - "::1"
+
+# Blocked networks (always denied)
+ufw_blocked_networks: []
+
+# Reset firewall before applying rules
+ufw_reset: false
+
+# Backup existing rules
+ufw_backup: true
+
+# Delete default rules
+ufw_delete_default_rules: true

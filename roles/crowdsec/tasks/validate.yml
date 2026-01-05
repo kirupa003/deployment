@@ -1,0 +1,91 @@
+---
+- name: Validate CrowdSec installation
+  command: cscli version
+  register: crowdsec_version_output
+  changed_when: false
+  become: true
+
+- name: Validate CrowdSec configuration
+  command: cscli config show
+  register: crowdsec_config_output
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Check CrowdSec hub status
+  command: cscli hub list
+  register: crowdsec_hub_status
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Validate installed scenarios
+  command: cscli scenarios list -o json
+  register: installed_scenarios
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Validate installed collections
+  command: cscli collections list -o json
+  register: installed_collections
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Check LAPI health
+  uri:
+    url: "{{ crowdsec_lapi_url }}/v1/heartbeat"
+    method: GET
+    status_code: 200
+  register: lapi_health_check
+  when: crowdsec_lapi_enabled | bool
+
+- name: Validate bouncer connectivity
+  command: "cscli bouncers list"
+  register: bouncer_list
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Check active decisions
+  command: "cscli decisions list"
+  register: active_decisions
+  changed_when: false
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: Test CrowdSec metrics endpoint
+  uri:
+    url: "http://{{ ansible_default_ipv4.address }}:{{ crowdsec_prometheus_port }}/metrics"
+    method: GET
+    status_code: 200
+  register: metrics_check
+  when: crowdsec_prometheus_enabled | bool
+
+- name: Validate firewall integration
+  command: iptables -L {{ crowdsec_iptables_chain }} -n
+  register: iptables_chain_check
+  become: true
+  when: crowdsec_iptables_integration | bool
+
+- name: Generate validation report
+  template:
+    src: validation-report.txt.j2
+    dest: /tmp/crowdsec-validation-report.txt
+    mode: '0644'
+  become: true
+
+- name: Display validation summary
+  debug:
+    msg: |
+      CrowdSec Validation Summary:
+      - Version: {{ crowdsec_version_output.stdout }}
+      - LAPI Status: {{ 'Healthy' if lapi_health_check.status == 200 else 'Unhealthy' }}
+      - Scenarios Installed: {{ (installed_scenarios.stdout | from_json) | length }}
+      - Collections Installed: {{ (installed_collections.stdout | from_json) | length }}
+      - Active Decisions: {{ active_decisions.stdout_lines | length }}
+      - Metrics Endpoint: {{ 'Available' if metrics_check.status == 200 else 'Unavailable' }}
+      - Firewall Integration: {{ 'Active' if iptables_chain_check.rc == 0 else 'Inactive' }}
+      
+      Full validation report saved to: /tmp/crowdsec-validation-report.txt

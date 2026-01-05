@@ -1,0 +1,61 @@
+---
+# Deploy OpenVPN servers
+# Usage: ansible-playbook playbooks/deploy/openvpn.yml
+
+- name: Deploy OpenVPN Servers
+  hosts: openvpn_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify target hosts
+      ansible.builtin.debug:
+        msg: "Deploying OpenVPN to {{ inventory_hostname }} in {{ vpn_region }}"
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+      vars:
+        firewall_vpn_ports:
+          - { port: "{{ openvpn_port_tcp | default(443) }}", proto: tcp }
+          - { port: "{{ openvpn_port_udp | default(1194) }}", proto: udp }
+
+    - role: openvpn
+      tags: [openvpn]
+
+    - role: coredns
+      tags: [dns]
+
+    - role: node_exporter
+      tags: [monitoring]
+
+    - role: openvpn_exporter
+      tags: [monitoring]
+
+    - role: promtail
+      tags: [logging]
+
+    - role: fluent_bit
+      tags: [logging]
+
+    - role: crowdsec
+      tags: [security]
+
+    - role: fail2ban
+      tags: [security]
+
+  post_tasks:
+    - name: Check OpenVPN TCP service
+      ansible.builtin.systemd:
+        name: openvpn-server@server-tcp
+        state: started
+      when: openvpn_proto_tcp | default(true)
+
+    - name: Check OpenVPN UDP service
+      ansible.builtin.systemd:
+        name: openvpn-server@server-udp
+        state: started
+      when: openvpn_proto_udp | default(true)

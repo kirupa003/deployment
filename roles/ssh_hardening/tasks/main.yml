@@ -1,0 +1,36 @@
+---
+- name: Include system preparation tasks
+  include_tasks: system.yml
+  tags:
+    - ssh_hardening
+    - system
+
+- name: Include host keys management tasks
+  include_tasks: host_keys.yml
+  tags:
+    - ssh_hardening
+    - host_keys
+
+- name: Include moduli hardening tasks
+  include_tasks: moduli.yml
+  tags:
+    - ssh_hardening
+    - moduli
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - ssh_hardening
+    - configure
+
+- name: Include service management tasks
+  include_tasks: service.yml
+  tags:
+    - ssh_hardening
+    - service
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - ssh_hardening
+    - validate

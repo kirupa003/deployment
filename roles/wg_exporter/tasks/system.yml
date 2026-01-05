@@ -1,0 +1,58 @@
+---
+- name: Create wg_exporter group
+  group:
+    name: "{{ wg_exporter_group }}"
+    system: true
+    state: present
+  become: true
+
+- name: Create wg_exporter user
+  user:
+    name: "{{ wg_exporter_user }}"
+    group: "{{ wg_exporter_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ wg_exporter_data_dir }}"
+    createhome: false
+    state: present
+  become: true
+
+- name: Add wg_exporter user to systemd-journal group
+  user:
+    name: "{{ wg_exporter_user }}"
+    groups: systemd-journal
+    append: true
+  become: true
+
+- name: Create wg_exporter directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ wg_exporter_user }}"
+    group: "{{ wg_exporter_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ wg_exporter_config_dir }}"
+    - "{{ wg_exporter_data_dir }}"
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - tar
+      - gzip
+      - wireguard-tools
+    state: present
+  become: true
+
+- name: Check if WireGuard is available
+  command: wg --version
+  register: wg_version_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if WireGuard is not available
+  fail:
+    msg: "WireGuard tools are not available. Please install WireGuard first."
+  when: wg_version_check.rc != 0

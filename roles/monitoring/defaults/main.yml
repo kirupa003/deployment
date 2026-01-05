@@ -1,0 +1,134 @@
+---
+# Monitoring Configuration
+monitoring_grafana_url: "http://localhost:3000"
+monitoring_grafana_admin_user: "admin"
+monitoring_grafana_admin_password: "admin"
+monitoring_grafana_api_key: ""
+
+# Prometheus/VictoriaMetrics configuration
+monitoring_prometheus_url: "http://localhost:9090"
+monitoring_victoriametrics_url: "http://localhost:8428"
+
+# Loki configuration
+monitoring_loki_url: "http://localhost:3100"
+
+# ClickHouse configuration
+monitoring_clickhouse_url: "http://localhost:8123"
+monitoring_clickhouse_database: "vpn_logs"
+
+# Dashboard configuration
+monitoring_dashboards_dir: "/var/lib/grafana/dashboards"
+monitoring_provisioning_dir: "/etc/grafana/provisioning"
+
+# Alert configuration
+monitoring_alerts_enabled: true
+monitoring_alertmanager_url: "http://localhost:9093"
+
+# Notification channels
+monitoring_slack_webhook_url: ""
+monitoring_slack_channel: "#alerts"
+monitoring_pagerduty_integration_key: ""
+monitoring_email_addresses: []
+
+# Dashboard settings
+monitoring_dashboard_refresh_interval: "30s"
+monitoring_dashboard_time_range: "1h"
+
+# VPN-specific monitoring settings
+monitoring_vpn_regions:
+  - "europe"
+  - "north_america" 
+  - "asia_pacific"
+
+monitoring_vpn_protocols:
+  - "wireguard"
+  - "openvpn"
+  - "amneziawg"
+
+# Alert thresholds
+monitoring_alert_thresholds:
+  cpu_usage: 80
+  memory_usage: 85
+  disk_usage: 90
+  vpn_service_down_duration: "5m"
+  high_connection_count: 1000
+  low_connection_success_rate: 0.95
+  dns_query_latency: 100  # milliseconds
+  log_shipping_delay: 300  # seconds
+
+# Data source configuration
+monitoring_data_sources:
+  - name: "VictoriaMetrics"
+    type: "prometheus"
+    url: "{{ monitoring_victoriametrics_url }}"
+    access: "proxy"
+    is_default: true
+  
+  - name: "Loki"
+    type: "loki"
+    url: "{{ monitoring_loki_url }}"
+    access: "proxy"
+  
+  - name: "ClickHouse"
+    type: "clickhouse"
+    url: "{{ monitoring_clickhouse_url }}"
+    database: "{{ monitoring_clickhouse_database }}"
+    access: "proxy"
+
+# Dashboard list
+monitoring_dashboards:
+  - name: "VPN Infrastructure Overview"
+    file: "vpn-infrastructure-overview.json"
+    folder: "VPN Monitoring"
+  
+  - name: "Server Health and Performance"
+    file: "server-health-performance.json"
+    folder: "VPN Monitoring"
+  
+  - name: "VPN Service Metrics"
+    file: "vpn-service-metrics.json"
+    folder: "VPN Monitoring"
+  
+  - name: "DNS Analytics"
+    file: "dns-analytics.json"
+    folder: "VPN Monitoring"
+  
+  - name: "Security Events"
+    file: "security-events.json"
+    folder: "VPN Monitoring"
+  
+  - name: "Log Analysis"
+    file: "log-analysis.json"
+    folder: "VPN Monitoring"
+
+# Alert rules
+monitoring_alert_rules:
+  - name: "VPN Server Down"
+    condition: 'up{job="node_exporter"} == 0'
+    duration: "{{ monitoring_alert_thresholds.vpn_service_down_duration }}"
+    severity: "critical"
+    
+  - name: "High CPU Usage"
+    condition: '100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > {{ monitoring_alert_thresholds.cpu_usage }}'
+    duration: "5m"
+    severity: "warning"
+    
+  - name: "High Memory Usage"
+    condition: '(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > {{ monitoring_alert_thresholds.memory_usage }}'
+    duration: "5m"
+    severity: "warning"
+    
+  - name: "High Disk Usage"
+    condition: '(1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > {{ monitoring_alert_thresholds.disk_usage }}'
+    duration: "5m"
+    severity: "critical"
+    
+  - name: "VPN Service Down"
+    condition: 'node_vpn_service_up == 0'
+    duration: "2m"
+    severity: "critical"
+    
+  - name: "High VPN Connection Count"
+    condition: 'wireguard_peers_total > {{ monitoring_alert_thresholds.high_connection_count }}'
+    duration: "10m"
+    severity: "warning"

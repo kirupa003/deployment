@@ -1,0 +1,73 @@
+---
+# OpenVPN Installation Verification
+
+- name: Check OpenVPN UDP service status
+  systemd:
+    name: "{{ _openvpn_service_udp }}"
+  register: openvpn_udp_status
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: Check OpenVPN TCP service status
+  systemd:
+    name: "{{ _openvpn_service_tcp }}"
+  register: openvpn_tcp_status
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: Check OpenVPN processes
+  command: pgrep -f openvpn
+  register: openvpn_processes
+  changed_when: false
+  failed_when: false
+
+- name: Verify certificate authority
+  stat:
+    path: "{{ openvpn_pki_dir }}/ca.crt"
+  register: ca_cert_check
+
+- name: Verify server certificate
+  stat:
+    path: "{{ openvpn_pki_dir }}/issued/{{ openvpn_server_name }}.crt"
+  register: server_cert_check
+
+- name: Check firewall rules
+  command: ufw status
+  register: ufw_status
+  changed_when: false
+  when: openvpn_firewall_enabled
+
+- name: Test management interface
+  uri:
+    url: "telnet://{{ openvpn_management_ip }}:{{ openvpn_management_port }}"
+    method: GET
+  register: management_test
+  when: openvpn_management_enabled
+  ignore_errors: true
+
+- name: Display OpenVPN status
+  debug:
+    msg: |
+      OpenVPN Status:
+      {% if openvpn_protocol in ['udp', 'both'] %}
+      - UDP Service: {{ openvpn_udp_status.status.ActiveState | default('Unknown') }}
+      {% endif %}
+      {% if openvpn_protocol in ['tcp', 'both'] %}
+      - TCP Service: {{ openvpn_tcp_status.status.ActiveState | default('Unknown') }}
+      {% endif %}
+      - Processes: {{ openvpn_processes.stdout_lines | length }} running
+      - CA Certificate: {{ 'Present' if ca_cert_check.stat.exists else 'Missing' }}
+      - Server Certificate: {{ 'Present' if server_cert_check.stat.exists else 'Missing' }}
+      {% if openvpn_protocol in ['udp', 'both'] %}
+      - UDP Port: {{ openvpn_port_udp }}
+      {% endif %}
+      {% if openvpn_protocol in ['tcp', 'both'] %}
+      - TCP Port: {{ openvpn_port_tcp }}
+      {% endif %}
+
+- name: Create verification report
+  template:
+    src: verification-report.txt.j2
+    dest: /tmp/openvpn-verification-report.txt
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

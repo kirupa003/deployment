@@ -1,0 +1,58 @@
+---
+# Deploy WireGuard VPN servers
+# Usage: ansible-playbook playbooks/deploy/wireguard.yml
+
+- name: Deploy WireGuard VPN Servers
+  hosts: wireguard_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify target hosts
+      ansible.builtin.debug:
+        msg: "Deploying WireGuard to {{ inventory_hostname }} in {{ vpn_region }}"
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+      vars:
+        firewall_vpn_ports:
+          - { port: "{{ wireguard_port | default(51820) }}", proto: udp }
+
+    - role: wireguard
+      tags: [wireguard]
+
+    - role: coredns
+      tags: [dns]
+
+    - role: node_exporter
+      tags: [monitoring]
+
+    - role: wg_exporter
+      tags: [monitoring]
+
+    - role: promtail
+      tags: [logging]
+
+    - role: fluent_bit
+      tags: [logging]
+
+    - role: crowdsec
+      tags: [security]
+
+    - role: fail2ban
+      tags: [security]
+
+  post_tasks:
+    - name: Display WireGuard status
+      ansible.builtin.command:
+        cmd: wg show
+      register: wg_status
+      changed_when: false
+
+    - name: Show WireGuard configuration
+      ansible.builtin.debug:
+        var: wg_status.stdout_lines

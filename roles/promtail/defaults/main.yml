@@ -1,0 +1,119 @@
+---
+# Promtail Configuration
+promtail_version: "2.9.3"
+promtail_user: "promtail"
+promtail_group: "promtail"
+promtail_port: 9080
+promtail_listen_address: "0.0.0.0"
+
+# Installation paths
+promtail_binary_path: "/usr/local/bin/promtail"
+promtail_config_dir: "/etc/promtail"
+promtail_data_dir: "/var/lib/promtail"
+promtail_log_dir: "/var/log/promtail"
+
+# Service configuration
+promtail_service_enabled: true
+promtail_service_state: "started"
+
+# Loki configuration
+promtail_loki_url: "http://localhost:3100"
+promtail_loki_tenant_id: ""
+promtail_loki_username: ""
+promtail_loki_password: ""
+
+# Log configuration
+promtail_log_level: "info"
+promtail_log_format: "json"
+
+# Position file
+promtail_positions_file: "{{ promtail_data_dir }}/positions.yaml"
+
+# Scrape configurations
+promtail_scrape_configs:
+  - job_name: "system"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: "system"
+          host: "{{ ansible_hostname }}"
+          region: "{{ ansible_ec2_placement_region | default('unknown') }}"
+          __path__: "/var/log/syslog"
+  
+  - job_name: "auth"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: "auth"
+          host: "{{ ansible_hostname }}"
+          region: "{{ ansible_ec2_placement_region | default('unknown') }}"
+          __path__: "/var/log/auth.log"
+  
+  - job_name: "wireguard"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: "wireguard"
+          host: "{{ ansible_hostname }}"
+          region: "{{ ansible_ec2_placement_region | default('unknown') }}"
+          __path__: "/var/log/wireguard/*.log"
+  
+  - job_name: "openvpn"
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: "openvpn"
+          host: "{{ ansible_hostname }}"
+          region: "{{ ansible_ec2_placement_region | default('unknown') }}"
+          __path__: "/var/log/openvpn/*.log"
+
+# Pipeline stages for log processing
+promtail_pipeline_stages:
+  - regex:
+      expression: '(?P<timestamp>\w+\s+\d+\s+\d+:\d+:\d+)\s+(?P<hostname>\S+)\s+(?P<service>\S+):\s+(?P<message>.*)'
+  - timestamp:
+      source: timestamp
+      format: "Jan 02 15:04:05"
+  - labels:
+      service:
+      hostname:
+
+# Server configuration
+promtail_server_config:
+  http_listen_port: "{{ promtail_port }}"
+  http_listen_address: "{{ promtail_listen_address }}"
+  grpc_listen_port: 0
+  log_level: "{{ promtail_log_level }}"
+  log_format: "{{ promtail_log_format }}"
+
+# Client configuration
+promtail_client_config:
+  url: "{{ promtail_loki_url }}/loki/api/v1/push"
+  tenant_id: "{{ promtail_loki_tenant_id }}"
+  batchwait: "1s"
+  batchsize: 1048576
+  timeout: "10s"
+  backoff_config:
+    min_period: "500ms"
+    max_period: "5m"
+    max_retries: 10
+  external_labels:
+    hostname: "{{ ansible_hostname }}"
+    region: "{{ ansible_ec2_placement_region | default('unknown') }}"
+    environment: "{{ environment | default('production') }}"
+
+# Firewall configuration
+promtail_firewall_enabled: true
+promtail_firewall_source_ranges:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"
+
+# Log rotation configuration
+promtail_log_rotation_enabled: true
+promtail_log_rotation_size: "100M"
+promtail_log_rotation_count: 7

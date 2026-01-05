@@ -1,0 +1,38 @@
+# WireGuard Client Configuration
+# Client: {{ client_name }}
+# Generated: {{ ansible_date_time.iso8601 }}
+
+[Interface]
+# Client private key
+PrivateKey = {{ client_private_key }}
+
+# Client IP address within the VPN network
+Address = {{ client_ip }}/32
+
+# DNS servers
+{% if wireguard_dns is string %}
+DNS = {{ wireguard_dns }}
+{% else %}
+DNS = {{ wireguard_dns | join(', ') }}
+{% endif %}
+
+# MTU
+MTU = {{ wireguard_mtu }}
+
+[Peer]
+# Server public key
+PublicKey = {{ wireguard_server_public_key }}
+
+# Server endpoint
+Endpoint = {{ ansible_default_ipv4.address }}:{{ wireguard_port }}
+
+# Allowed IPs (route all traffic through VPN)
+AllowedIPs = 0.0.0.0/0, ::/0
+
+# Keep connection alive
+PersistentKeepalive = {{ wireguard_persistent_keepalive }}
+
+{% if wireguard_use_preshared_key | default(false) %}
+# Preshared key for additional security
+PresharedKey = {{ preshared_key }}
+{% endif %}

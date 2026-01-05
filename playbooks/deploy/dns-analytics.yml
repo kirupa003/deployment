@@ -1,0 +1,51 @@
+---
+# Deploy DNS Analytics Server (ClickHouse)
+# Centralizes all DNS queries from VPN servers
+#
+# Usage: ansible-playbook playbooks/deploy/dns-analytics.yml
+
+- name: Deploy DNS Analytics Server
+  hosts: dns_analytics
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+
+    - role: dns_analytics
+      tags: [dns_analytics, clickhouse]
+
+  post_tasks:
+    - name: Display ClickHouse connection info
+      ansible.builtin.debug:
+        msg: |
+          =====================================================
+          DNS Analytics Server Deployed!
+          =====================================================
+
+          ClickHouse Connection:
+          - Host: {{ ansible_host }}
+          - HTTP Port: {{ clickhouse_http_port }}
+          - Native Port: {{ clickhouse_native_port }}
+          - Database: {{ clickhouse_database }}
+          - User: {{ clickhouse_user }}
+
+          Query Examples:
+          ---------------
+          # Connect to ClickHouse
+          clickhouse-client -h {{ ansible_host }} -u {{ clickhouse_user }} --password
+
+          # Top domains today
+          SELECT domain, count() as queries
+          FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+          WHERE timestamp > now() - INTERVAL 1 DAY
+          GROUP BY domain ORDER BY queries DESC LIMIT 20;
+
+          # Run all sample queries
+          clickhouse-client < /opt/dns-analytics-queries.sql
+
+          =====================================================

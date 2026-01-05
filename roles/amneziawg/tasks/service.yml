@@ -1,0 +1,32 @@
+---
+# AmneziaWG Service Management
+
+- name: Enable AmneziaWG service
+  systemd:
+    name: "awg-quick@{{ amneziawg_interface }}"
+    enabled: "{{ amneziawg_service_enabled }}"
+    daemon_reload: true
+  become: true
+
+- name: Start AmneziaWG service
+  systemd:
+    name: "awg-quick@{{ amneziawg_interface }}"
+    state: "{{ amneziawg_service_state }}"
+  become: true
+
+- name: Create AmneziaWG service monitoring script
+  template:
+    src: monitor-amneziawg.sh.j2
+    dest: /usr/local/bin/monitor-amneziawg.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup AmneziaWG monitoring cron job
+  cron:
+    name: "AmneziaWG service monitoring"
+    minute: "*/5"
+    job: "/usr/local/bin/monitor-amneziawg.sh"
+    user: root
+  become: true

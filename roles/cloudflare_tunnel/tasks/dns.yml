@@ -1,0 +1,52 @@
+---
+# Configure DNS for Cloudflare Tunnel
+
+- name: Get tunnel ID from Cloudflare API
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/cfd_tunnel"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+  register: tunnels_response
+  when: cloudflare_api_token is defined
+
+- name: Set tunnel ID
+  set_fact:
+    cloudflare_tunnel_id: "{{ (tunnels_response.json.result | selectattr('name', 'equalto', cloudflare_tunnel_name) | list | first).id }}"
+  when:
+    - cloudflare_api_token is defined
+    - tunnels_response.json.result | length > 0
+
+- name: Create DNS CNAME records for tunnel
+  uri:
+    url: "https://api.cloudflare.com/client/v4/zones/{{ cloudflare_zone_id }}/dns_records"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      type: "CNAME"
+      name: "{{ item.hostname | regex_replace('\\.' + cloudflare_domain + '$', '') }}"
+      content: "{{ cloudflare_tunnel_id }}.cfargotunnel.com"
+      proxied: true
+      ttl: 1
+    status_code: [200, 400]  # 400 if record already exists
+  loop: "{{ cloudflare_tunnel_ingress | selectattr('hostname', 'defined') | list }}"
+  when:
+    - cloudflare_api_token is defined
+    - cloudflare_tunnel_id is defined
+    - item.hostname != '*.' + cloudflare_domain
+  register: dns_creation
+
+- name: Display DNS configuration status
+  debug:
+    msg: |
+      DNS Configuration:
+      {% for item in cloudflare_tunnel_ingress %}
+      {% if item.hostname is defined and item.hostname != '*.' + cloudflare_domain %}
+      - {{ item.hostname }} -> Tunnel {{ cloudflare_tunnel_name }}
+      {% endif %}
+      {% endfor %}

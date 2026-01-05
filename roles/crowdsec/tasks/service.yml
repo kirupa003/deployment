@@ -1,0 +1,47 @@
+---
+- name: Enable and start CrowdSec service
+  systemd:
+    name: crowdsec
+    enabled: "{{ crowdsec_service_enabled }}"
+    state: "{{ crowdsec_service_state }}"
+    daemon_reload: true
+  become: true
+
+- name: Enable and start CrowdSec firewall bouncer service
+  systemd:
+    name: crowdsec-firewall-bouncer
+    enabled: "{{ crowdsec_service_enabled }}"
+    state: "{{ crowdsec_service_state }}"
+    daemon_reload: true
+  become: true
+  when: crowdsec_firewall_integration | bool
+
+- name: Wait for CrowdSec service to be ready
+  wait_for:
+    port: "{{ crowdsec_lapi_port }}"
+    host: "{{ crowdsec_lapi_host }}"
+    delay: 5
+    timeout: 60
+  when: crowdsec_lapi_enabled | bool
+
+- name: Check CrowdSec service status
+  systemd:
+    name: crowdsec
+  register: crowdsec_service_status
+  become: true
+
+- name: Display CrowdSec service status
+  debug:
+    msg: "CrowdSec service is {{ crowdsec_service_status.status.ActiveState }}"
+
+- name: Check CrowdSec firewall bouncer service status
+  systemd:
+    name: crowdsec-firewall-bouncer
+  register: bouncer_service_status
+  become: true
+  when: crowdsec_firewall_integration | bool
+
+- name: Display firewall bouncer service status
+  debug:
+    msg: "CrowdSec firewall bouncer service is {{ bouncer_service_status.status.ActiveState }}"
+  when: crowdsec_firewall_integration | bool

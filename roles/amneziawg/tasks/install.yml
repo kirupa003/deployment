@@ -1,0 +1,51 @@
+---
+# AmneziaWG Package Installation
+
+- name: Update package cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install build dependencies
+  apt:
+    name: "{{ _amneziawg_packages[ansible_distribution] | default(amneziawg_build_packages) }}"
+    state: present
+  become: true
+
+- name: Create AmneziaWG directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ amneziawg_config_dir }}"
+    - "{{ amneziawg_keys_dir }}"
+    - "{{ client_config_dir }}"
+    - "{{ client_qr_dir }}"
+    - "{{ amneziawg_log_dir }}"
+    - "{{ amneziawg_build_dir }}"
+    - "{{ amneziawg_tools_build_dir }}"
+
+- name: Create secure directories
+  file:
+    path: "{{ amneziawg_keys_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Check if AmneziaWG kernel module is already loaded
+  command: lsmod | grep amneziawg
+  register: amneziawg_module_check
+  failed_when: false
+  changed_when: false
+
+- name: Check if AmneziaWG tools are already installed
+  stat:
+    path: "{{ _awg_binary }}"
+  register: awg_tools_check

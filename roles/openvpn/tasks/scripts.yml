@@ -1,0 +1,46 @@
+---
+# OpenVPN Management Scripts
+
+- name: Create OpenVPN management interface script
+  template:
+    src: ovpn-management.py.j2
+    dest: /usr/local/bin/ovpn-management.py
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Install Python dependencies for management script
+  apt:
+    name:
+      - python3
+      - python3-pip
+    state: present
+  become: true
+
+- name: Create OpenVPN statistics script
+  template:
+    src: ovpn-stats.sh.j2
+    dest: /usr/local/bin/ovpn-stats
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create OpenVPN connection test script
+  template:
+    src: test-connection.sh.j2
+    dest: /usr/local/bin/ovpn-test-connection
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create OpenVPN maintenance script
+  template:
+    src: maintenance.sh.j2
+    dest: /usr/local/bin/ovpn-maintenance
+    owner: root
+    group: root
+    mode: '0755'
+  become: true

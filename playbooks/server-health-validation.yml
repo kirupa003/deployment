@@ -1,0 +1,421 @@
+---
+- name: VPN Server Health Validation and Automatic Remediation
+  hosts: "{{ target_hosts | default('vpn_servers') }}"
+  become: yes
+  gather_facts: yes
+  vars:
+    # Health check configuration
+    health_check_timeout: 300
+    remediation_enabled: true
+    auto_restart_services: true
+    alert_on_failure: true
+    
+    # Thresholds for health checks
+    cpu_threshold: 80
+    memory_threshold: 85
+    disk_threshold: 90
+    connection_threshold: 95
+    
+    # Service check configuration
+    critical_services:
+      - ssh
+      - ufw
+      - fail2ban
+      - crowdsec
+      - node_exporter
+      - promtail
+    
+    vpn_services:
+      - wg-quick@wg0
+      - openvpn@server
+      - awg-quick@awg0
+    
+    # Remediation settings
+    max_restart_attempts: 3
+    restart_delay: 30
+    escalation_threshold: 2
+
+  pre_tasks:
+    - name: Initialize health check session
+      set_fact:
+        health_check_session:
+          started_at: "{{ ansible_date_time.iso8601 }}"
+          server: "{{ inventory_hostname }}"
+          checks_performed: []
+          issues_found: []
+          remediations_applied: []
+
+  tasks:
+    - name: System Resource Health Checks
+      block:
+        - name: Check CPU usage
+          shell: |
+            top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//'
+          register: cpu_usage
+          changed_when: false
+
+        - name: Check memory usage
+          shell: |
+            free | grep Mem | awk '{printf "%.0f", $3/$2 * 100.0}'
+          register: memory_usage
+          changed_when: false
+
+        - name: Check disk usage
+          shell: |
+            df / | tail -1 | awk '{print $5}' | sed 's/%//'
+          register: disk_usage
+          changed_when: false
+
+        - name: Check system load
+          shell: |
+            uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | sed 's/,//'
+          register: system_load
+          changed_when: false
+
+        - name: Evaluate resource thresholds
+          set_fact:
+            resource_issues: |
+              {%- set issues = [] -%}
+              {%- if cpu_usage.stdout | float > cpu_threshold -%}
+                {%- set _ = issues.append('CPU usage high: ' + cpu_usage.stdout + '%') -%}
+              {%- endif -%}
+              {%- if memory_usage.stdout | float > memory_threshold -%}
+                {%- set _ = issues.append('Memory usage high: ' + memory_usage.stdout + '%') -%}
+              {%- endif -%}
+              {%- if disk_usage.stdout | float > disk_threshold -%}
+                {%- set _ = issues.append('Disk usage high: ' + disk_usage.stdout + '%') -%}
+              {%- endif -%}
+              {{ issues }}
+
+        - name: Log resource check results
+          debug:
+            msg: |
+              Resource Usage Status:
+              - CPU: {{ cpu_usage.stdout }}%
+              - Memory: {{ memory_usage.stdout }}%
+              - Disk: {{ disk_usage.stdout }}%
+              - Load: {{ system_load.stdout }}
+              - Issues: {{ resource_issues | length }} found
+
+    - name: Network Connectivity Health Checks
+      block:
+        - name: Check internet connectivity
+          uri:
+            url: "https://{{ item }}"
+            method: HEAD
+            timeout: 10
+          loop:
+            - "8.8.8.8"
+            - "1.1.1.1"
+            - "google.com"
+          register: connectivity_check
+          failed_when: false
+
+        - name: Check DNS resolution
+          shell: |
+            nslookup google.com 8.8.8.8 | grep -q "Address" && echo "OK" || echo "FAIL"
+          register: dns_check
+          changed_when: false
+
+        - name: Check VPN port accessibility
+          wait_for:
+            port: "{{ item }}"
+            host: "{{ ansible_default_ipv4.address }}"
+            timeout: 10
+          loop:
+            - 51820  # WireGuard
+            - 1194   # OpenVPN
+            - 10086  # WireGuard Dashboard
+          register: port_check
+          failed_when: false
+
+        - name: Evaluate network connectivity
+          set_fact:
+            network_issues: |
+              {%- set issues = [] -%}
+              {%- if connectivity_check.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list | length == 0 -%}
+                {%- set _ = issues.append('No internet connectivity') -%}
+              {%- endif -%}
+              {%- if dns_check.stdout != 'OK' -%}
+                {%- set _ = issues.append('DNS resolution failed') -%}
+              {%- endif -%}
+              {{ issues }}
+
+    - name: Service Health Checks
+      block:
+        - name: Check critical system services
+          systemd:
+            name: "{{ item }}"
+          register: critical_service_status
+          loop: "{{ critical_services }}"
+          failed_when: false
+
+        - name: Check VPN services
+          systemd:
+            name: "{{ item }}"
+          register: vpn_service_status
+          loop: "{{ vpn_services }}"
+          failed_when: false
+          ignore_errors: yes
+
+        - name: Evaluate service health
+          set_fact:
+            service_issues: |
+              {%- set issues = [] -%}
+              {%- for result in critical_service_status.results -%}
+                {%- if result.status.ActiveState != 'active' -%}
+                  {%- set _ = issues.append('Critical service down: ' + result.item) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- for result in vpn_service_status.results -%}
+                {%- if result.status is defined and result.status.ActiveState != 'active' -%}
+                  {%- set _ = issues.append('VPN service down: ' + result.item) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ issues }}
+
+    - name: VPN-Specific Health Checks
+      block:
+        - name: Check WireGuard interface status
+          shell: |
+            wg show wg0 2>/dev/null && echo "UP" || echo "DOWN"
+          register: wg_interface_status
+          changed_when: false
+          ignore_errors: yes
+
+        - name: Count active WireGuard peers
+          shell: |
+            wg show wg0 peers 2>/dev/null | wc -l
+          register: wg_peer_count
+          changed_when: false
+          ignore_errors: yes
+
+        - name: Check OpenVPN status
+          shell: |
+            if [ -f /var/run/openvpn/server.pid ]; then
+              echo "RUNNING"
+            else
+              echo "STOPPED"
+            fi
+          register: openvpn_status
+          changed_when: false
+
+        - name: Check VPN client capacity
+          shell: |
+            # Calculate current capacity usage
+            wg_peers=$(wg show wg0 peers 2>/dev/null | wc -l || echo "0")
+            ovpn_clients=0
+            if [ -f /var/log/openvpn/status.log ]; then
+              ovpn_clients=$(grep "^CLIENT_LIST" /var/log/openvpn/status.log | wc -l)
+            fi
+            total_connections=$((wg_peers + ovpn_clients))
+            max_capacity={{ server_capacity | default(100) }}
+            usage_percent=$((total_connections * 100 / max_capacity))
+            echo "$usage_percent"
+          register: capacity_usage
+          changed_when: false
+
+        - name: Evaluate VPN health
+          set_fact:
+            vpn_issues: |
+              {%- set issues = [] -%}
+              {%- if wg_interface_status.stdout == 'DOWN' and 'wireguard' in server_protocols | default(['wireguard']) -%}
+                {%- set _ = issues.append('WireGuard interface down') -%}
+              {%- endif -%}
+              {%- if openvpn_status.stdout == 'STOPPED' and 'openvpn' in server_protocols | default([]) -%}
+                {%- set _ = issues.append('OpenVPN service stopped') -%}
+              {%- endif -%}
+              {%- if capacity_usage.stdout | int > connection_threshold -%}
+                {%- set _ = issues.append('Connection capacity exceeded: ' + capacity_usage.stdout + '%') -%}
+              {%- endif -%}
+              {{ issues }}
+
+    - name: Security Health Checks
+      block:
+        - name: Check firewall status
+          shell: |
+            ufw status | grep -q "Status: active" && echo "ACTIVE" || echo "INACTIVE"
+          register: firewall_status
+          changed_when: false
+
+        - name: Check fail2ban jails
+          shell: |
+            fail2ban-client status | grep "Jail list" | awk -F: '{print $2}' | wc -w
+          register: fail2ban_jails
+          changed_when: false
+          ignore_errors: yes
+
+        - name: Check CrowdSec agent status
+          shell: |
+            cscli metrics | grep -q "Local API" && echo "CONNECTED" || echo "DISCONNECTED"
+          register: crowdsec_status
+          changed_when: false
+          ignore_errors: yes
+
+        - name: Check SSH configuration
+          shell: |
+            sshd -t && echo "VALID" || echo "INVALID"
+          register: ssh_config_status
+          changed_when: false
+
+        - name: Evaluate security health
+          set_fact:
+            security_issues: |
+              {%- set issues = [] -%}
+              {%- if firewall_status.stdout != 'ACTIVE' -%}
+                {%- set _ = issues.append('Firewall not active') -%}
+              {%- endif -%}
+              {%- if fail2ban_jails.stdout | int == 0 -%}
+                {%- set _ = issues.append('No fail2ban jails active') -%}
+              {%- endif -%}
+              {%- if crowdsec_status.stdout == 'DISCONNECTED' -%}
+                {%- set _ = issues.append('CrowdSec agent disconnected') -%}
+              {%- endif -%}
+              {%- if ssh_config_status.stdout != 'VALID' -%}
+                {%- set _ = issues.append('SSH configuration invalid') -%}
+              {%- endif -%}
+              {{ issues }}
+
+    - name: Compile Health Check Results
+      set_fact:
+        all_issues: "{{ resource_issues + network_issues + service_issues + vpn_issues + security_issues }}"
+        health_status: "{{ 'HEALTHY' if (resource_issues + network_issues + service_issues + vpn_issues + security_issues) | length == 0 else 'UNHEALTHY' }}"
+
+    - name: Automatic Remediation
+      block:
+        - name: Restart failed critical services
+          systemd:
+            name: "{{ item.item }}"
+            state: restarted
+          loop: "{{ critical_service_status.results }}"
+          when: 
+            - remediation_enabled | bool
+            - auto_restart_services | bool
+            - item.status.ActiveState != 'active'
+          register: service_restart_results
+          ignore_errors: yes
+
+        - name: Restart failed VPN services
+          systemd:
+            name: "{{ item.item }}"
+            state: restarted
+          loop: "{{ vpn_service_status.results }}"
+          when: 
+            - remediation_enabled | bool
+            - auto_restart_services | bool
+            - item.status is defined
+            - item.status.ActiveState != 'active'
+          register: vpn_restart_results
+          ignore_errors: yes
+
+        - name: Fix WireGuard interface
+          shell: |
+            wg-quick down wg0 && sleep 5 && wg-quick up wg0
+          when:
+            - remediation_enabled | bool
+            - wg_interface_status.stdout == 'DOWN'
+            - "'wireguard' in server_protocols | default(['wireguard'])"
+          register: wg_fix_result
+          ignore_errors: yes
+
+        - name: Restart firewall if inactive
+          systemd:
+            name: ufw
+            state: restarted
+          when:
+            - remediation_enabled | bool
+            - firewall_status.stdout != 'ACTIVE'
+          register: firewall_restart_result
+          ignore_errors: yes
+
+        - name: Clear disk space if needed
+          shell: |
+            # Clean package cache
+            apt-get clean
+            # Clean old logs
+            journalctl --vacuum-time=7d
+            # Clean temporary files
+            find /tmp -type f -atime +7 -delete
+          when:
+            - remediation_enabled | bool
+            - disk_usage.stdout | int > disk_threshold
+          register: disk_cleanup_result
+          ignore_errors: yes
+
+      when: all_issues | length > 0
+
+    - name: Post-Remediation Health Check
+      block:
+        - name: Wait for services to stabilize
+          wait_for:
+            timeout: 30
+          when: remediation_enabled | bool
+
+        - name: Re-check critical services
+          systemd:
+            name: "{{ item }}"
+          register: post_remediation_status
+          loop: "{{ critical_services }}"
+          when: remediation_enabled | bool
+          failed_when: false
+
+        - name: Evaluate remediation success
+          set_fact:
+            remediation_success: |
+              {%- set success_count = 0 -%}
+              {%- set total_count = critical_services | length -%}
+              {%- for result in post_remediation_status.results | default([]) -%}
+                {%- if result.status.ActiveState == 'active' -%}
+                  {%- set success_count = success_count + 1 -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ (success_count / total_count * 100) | round(1) if total_count > 0 else 100 }}
+
+      when: 
+        - remediation_enabled | bool
+        - all_issues | length > 0
+
+  post_tasks:
+    - name: Generate health report
+      template:
+        src: templates/health-validation-report.j2
+        dest: "/tmp/health-report-{{ inventory_hostname }}.txt"
+      delegate_to: localhost
+
+    - name: Display health summary
+      debug:
+        msg: |
+          Health Check Summary for {{ inventory_hostname }}:
+          - Overall Status: {{ health_status }}
+          - Issues Found: {{ all_issues | length }}
+          - Resource Issues: {{ resource_issues | length }}
+          - Network Issues: {{ network_issues | length }}
+          - Service Issues: {{ service_issues | length }}
+          - VPN Issues: {{ vpn_issues | length }}
+          - Security Issues: {{ security_issues | length }}
+          - Remediation Applied: {{ remediation_enabled }}
+          {% if remediation_enabled and all_issues | length > 0 %}
+          - Remediation Success: {{ remediation_success | default('N/A') }}%
+          {% endif %}
+
+    - name: Send alert if unhealthy
+      uri:
+        url: "{{ alert_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          server: "{{ inventory_hostname }}"
+          status: "{{ health_status }}"
+          issues: "{{ all_issues }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: 
+        - alert_on_failure | bool
+        - health_status == 'UNHEALTHY'
+        - alert_webhook_url is defined
+      ignore_errors: yes
+
+  handlers:
+    - name: restart networking
+      systemd:
+        name: networking
+        state: restarted

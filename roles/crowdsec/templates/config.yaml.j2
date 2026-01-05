@@ -1,0 +1,64 @@
+---
+# CrowdSec Main Configuration
+common:
+  daemonize: true
+  pid_dir: /var/run/
+  log_media: file
+  log_level: info
+  log_dir: {{ crowdsec_log_dir }}
+  working_dir: {{ crowdsec_data_dir }}
+
+config_paths:
+  config_dir: {{ crowdsec_config_dir }}
+  data_dir: {{ crowdsec_data_dir }}
+  simulation_path: {{ crowdsec_config_dir }}/simulation.yaml
+  hub_dir: {{ crowdsec_config_dir }}/hub
+  index_path: {{ crowdsec_config_dir }}/hub/.index.json
+
+crowdsec_service:
+  acquisition_path: {{ crowdsec_config_dir }}/acquis.yaml
+  acquisition_dir: {{ crowdsec_config_dir }}/acquis.d
+  parser_routines: 1
+
+cscli:
+  output: human
+  hub_branch: master
+  prometheus:
+    enabled: {{ crowdsec_prometheus_enabled | lower }}
+    listen_addr: {{ ansible_default_ipv4.address }}
+    listen_port: {{ crowdsec_prometheus_port }}
+
+db_config:
+  log_level: info
+  type: {{ crowdsec_db_type }}
+{% if crowdsec_db_type == 'sqlite' %}
+  db_path: {{ crowdsec_db_path }}
+{% endif %}
+  flush:
+    max_items: 5000
+    max_age: 7d
+
+api:
+  client:
+    insecure_skip_verify: false
+    credentials_path: {{ crowdsec_config_dir }}/local_api_credentials.yaml
+  server:
+    log_level: info
+    listen_uri: {{ crowdsec_lapi_host }}:{{ crowdsec_lapi_port }}
+    profiles_path: {{ crowdsec_config_dir }}/profiles.yaml
+    online_client:
+      credentials_path: {{ crowdsec_config_dir }}/online_api_credentials.yaml
+{% if crowdsec_tls_enabled %}
+    tls:
+      cert_file: {{ crowdsec_tls_cert_file }}
+      key_file: {{ crowdsec_tls_key_file }}
+{% endif %}
+{% if crowdsec_central_api_enabled %}
+    online_client:
+      credentials_path: {{ crowdsec_config_dir }}/online_api_credentials.yaml
+{% endif %}
+
+prometheus:
+  enabled: {{ crowdsec_prometheus_enabled | lower }}
+  listen_addr: {{ ansible_default_ipv4.address }}
+  listen_port: {{ crowdsec_prometheus_port }}

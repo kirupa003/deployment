@@ -1,0 +1,51 @@
+---
+- name: Generate web configuration file
+  template:
+    src: web.yml.j2
+    dest: "{{ wg_exporter_web_config_file }}"
+    owner: "{{ wg_exporter_user }}"
+    group: "{{ wg_exporter_group }}"
+    mode: '0640'
+  become: true
+  notify: restart wg_exporter
+  when: wg_exporter_tls_enabled
+
+- name: Create systemd service file
+  template:
+    src: wg_exporter.service.j2
+    dest: /etc/systemd/system/wg_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify:
+    - reload systemd
+    - restart wg_exporter
+
+- name: Create wg_exporter environment file
+  template:
+    src: wg_exporter.env.j2
+    dest: /etc/default/wg_exporter
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: restart wg_exporter
+
+- name: Create WireGuard configuration monitoring script
+  template:
+    src: wg_monitor.sh.j2
+    dest: /usr/local/bin/wg_monitor.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Set up sudo permissions for wg_exporter user
+  lineinfile:
+    path: /etc/sudoers.d/wg_exporter
+    line: "{{ wg_exporter_user }} ALL=(root) NOPASSWD: /usr/bin/wg show *"
+    create: true
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  become: true

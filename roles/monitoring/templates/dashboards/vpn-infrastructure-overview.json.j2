@@ -1,0 +1,174 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "VPN Infrastructure Overview",
+    "tags": ["vpn", "infrastructure", "overview"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "{{ monitoring_dashboard_refresh_interval }}",
+    "time": {
+      "from": "now-{{ monitoring_dashboard_time_range }}",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "VPN Servers Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(up{job=\"node_exporter\"})",
+            "refId": "A",
+            "legendFormat": "Total Servers"
+          },
+          {
+            "expr": "count(up{job=\"node_exporter\"} == 1)",
+            "refId": "B",
+            "legendFormat": "Online Servers"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 20},
+                {"color": "green", "value": 25}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Active VPN Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(wireguard_peers_total)",
+            "refId": "A",
+            "legendFormat": "WireGuard Peers"
+          },
+          {
+            "expr": "sum(node_openvpn_clients_total)",
+            "refId": "B",
+            "legendFormat": "OpenVPN Clients"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Regional Distribution",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "count by (region) (up{job=\"node_exporter\"})",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} region {{ '}}' }}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "System Load Average",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "avg by (region) (node_load1)",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} region {{ '}}' }} - 1m"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "fillOpacity": 10
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Memory Usage by Region",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "avg by (region) ((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} region {{ '}}' }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 85}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Network Traffic",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (region) (rate(node_network_receive_bytes_total[5m]))",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} region {{ '}}' }} - RX"
+          },
+          {
+            "expr": "sum by (region) (rate(node_network_transmit_bytes_total[5m]))",
+            "refId": "B",
+            "legendFormat": "{{ '{{' }} region {{ '}}' }} - TX"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "binBps"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "region",
+          "type": "query",
+          "query": "label_values(up{job=\"node_exporter\"}, region)",
+          "refresh": 1,
+          "includeAll": true,
+          "allValue": ".*"
+        }
+      ]
+    },
+    "annotations": {
+      "list": []
+    },
+    "schemaVersion": 30,
+    "version": 1,
+    "links": []
+  }
+}

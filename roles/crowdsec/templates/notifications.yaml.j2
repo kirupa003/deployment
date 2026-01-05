@@ -1,0 +1,61 @@
+---
+# CrowdSec Notifications Configuration
+{% if crowdsec_notifications.slack.enabled %}
+slack_default:
+  type: slack
+  name: slack_default
+  log_level: info
+  webhook: {{ crowdsec_notifications.slack.webhook_url }}
+  channel: "{{ crowdsec_notifications.slack.channel }}"
+  username: "CrowdSec-{{ ansible_hostname }}"
+  icon_emoji: ":shield:"
+  format: |
+    :warning: **CrowdSec Alert on {{ ansible_hostname }}**
+    
+    **Scenario:** {{.Alert.Scenario}}
+    **Source IP:** {{.Alert.Source.IP}}
+    **Country:** {{.Alert.Source.Cn}}
+    **ASN:** {{.Alert.Source.AsName}}
+    **Decision:** {{.Alert.Decisions.Type}} for {{.Alert.Decisions.Duration}}
+    **Events:** {{.Alert.Events | len}} events
+    **Time:** {{.Alert.StartAt}}
+    
+    **Details:**
+    {{range .Alert.Events}}
+    - {{.Timestamp}}: {{.Line}}
+    {{end}}
+
+{% endif %}
+
+{% if crowdsec_notifications.email.enabled %}
+email_default:
+  type: email
+  name: email_default
+  log_level: info
+  smtp_host: {{ crowdsec_notifications.email.smtp_host }}
+  smtp_port: {{ crowdsec_notifications.email.smtp_port }}
+  smtp_username: {{ crowdsec_notifications.email.smtp_username }}
+  smtp_password: {{ crowdsec_notifications.email.smtp_password }}
+  sender_email: {{ crowdsec_notifications.email.from_email }}
+  receiver_emails:
+{% for email in crowdsec_notifications.email.to_emails %}
+    - {{ email }}
+{% endfor %}
+  subject: "CrowdSec Alert - {{ ansible_hostname }}"
+  email_body: |
+    CrowdSec Alert on {{ ansible_hostname }}
+    
+    Scenario: {{.Alert.Scenario}}
+    Source IP: {{.Alert.Source.IP}}
+    Country: {{.Alert.Source.Cn}}
+    ASN: {{.Alert.Source.AsName}}
+    Decision: {{.Alert.Decisions.Type}} for {{.Alert.Decisions.Duration}}
+    Events: {{.Alert.Events | len}} events
+    Time: {{.Alert.StartAt}}
+    
+    Event Details:
+    {{range .Alert.Events}}
+    {{.Timestamp}}: {{.Line}}
+    {{end}}
+
+{% endif %}

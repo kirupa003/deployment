@@ -1,0 +1,84 @@
+# Environment-specific configuration template
+# Generated from template: inventories/templates/environment.yml.j2
+# Environment: {{ environment_name }}
+# Generated at: {{ ansible_date_time.iso8601 }}
+
+---
+# Environment Configuration
+environment:
+  name: "{{ environment_name }}"
+  type: "{{ environment_type | default('production') }}"
+  region_count: {{ regions | length }}
+  total_servers: {{ total_servers | default(30) }}
+  
+# Network Configuration
+network:
+  domain: "{{ domain_name }}"
+  vpn_network: "{{ vpn_network_cidr }}"
+  dns_servers:
+{% for server in dns_servers %}
+    - {{ server }}
+{% endfor %}
+  ntp_servers:
+{% for server in ntp_servers %}
+    - {{ server }}
+{% endfor %}
+
+# Security Configuration
+security:
+  ssh_port: {{ ssh_port | default(22) }}
+  vault_enabled: {{ vault_enabled | default(true) }}
+  crowdsec_enabled: {{ crowdsec_enabled | default(true) }}
+  fail2ban_enabled: {{ fail2ban_enabled | default(true) }}
+  ssh_hardening: {{ ssh_hardening_enabled | default(true) }}
+  firewall_policy: "{{ firewall_policy | default('deny') }}"
+
+# Monitoring Configuration
+monitoring:
+  enabled: {{ monitoring_enabled | default(true) }}
+  retention_days: {{ metrics_retention_days | default(90) }}
+  log_shipping: {{ log_shipping_enabled | default(true) }}
+  alerting: {{ alerting_enabled | default(true) }}
+  
+# Service Configuration
+services:
+  wireguard:
+    enabled: {{ wireguard_enabled | default(true) }}
+    port: {{ wireguard_port | default(51820) }}
+    dashboard_port: {{ wireguard_dashboard_port | default(10086) }}
+  
+  openvpn:
+    enabled: {{ openvpn_enabled | default(true) }}
+    port_udp: {{ openvpn_port_udp | default(1194) }}
+    port_tcp: {{ openvpn_port_tcp | default(443) }}
+  
+  amneziawg:
+    enabled: {{ amneziawg_enabled | default(false) }}
+    port: {{ amneziawg_port | default(51821) }}
+    
+  coredns:
+    enabled: {{ coredns_enabled | default(true) }}
+    port: {{ coredns_port | default(53) }}
+    admin_port: {{ coredns_admin_port | default(9153) }}
+    ad_blocking: {{ ad_blocking_enabled | default(true) }}
+
+# Resource Limits
+resources:
+  max_connections_per_server: {{ max_concurrent_connections | default(1000) }}
+  bandwidth_limit_mbps: {{ bandwidth_limit_mbps | default(1000) }}
+  cpu_limit_percent: {{ cpu_limit_percent | default(80) }}
+  memory_limit_percent: {{ memory_limit_percent | default(85) }}
+
+# Backup Configuration
+backup:
+  enabled: {{ backup_enabled | default(true) }}
+  retention_days: {{ backup_retention_days | default(7) }}
+  schedule: "{{ backup_schedule | default('0 2 * * *') }}"
+  storage_backend: "{{ backup_storage_backend | default('local') }}"
+
+# Update Configuration
+updates:
+  auto_updates: {{ auto_updates_enabled | default(true) }}
+  security_only: {{ security_updates_only | default(true) }}
+  reboot_required: {{ reboot_required_check | default(true) }}
+  maintenance_window: "{{ maintenance_window | default('02:00-04:00') }}"

@@ -1,0 +1,91 @@
+---
+# Fluent Bit Configuration
+fluent_bit_version: "2.2.2"
+fluent_bit_user: "fluent-bit"
+fluent_bit_group: "fluent-bit"
+fluent_bit_port: 2020
+fluent_bit_listen_address: "0.0.0.0"
+
+# Installation paths
+fluent_bit_config_dir: "/etc/fluent-bit"
+fluent_bit_data_dir: "/var/lib/fluent-bit"
+fluent_bit_log_dir: "/var/log/fluent-bit"
+
+# Service configuration
+fluent_bit_service_enabled: true
+fluent_bit_service_state: "started"
+
+# ClickHouse configuration
+fluent_bit_clickhouse_host: "localhost"
+fluent_bit_clickhouse_port: 8123
+fluent_bit_clickhouse_database: "vpn_logs"
+fluent_bit_clickhouse_table: "dns_queries"
+fluent_bit_clickhouse_username: ""
+fluent_bit_clickhouse_password: ""
+fluent_bit_clickhouse_tls: false
+
+# Kafka configuration (alternative output)
+fluent_bit_kafka_enabled: false
+fluent_bit_kafka_brokers: "localhost:9092"
+fluent_bit_kafka_topic: "dns-logs"
+
+# DNS log sources
+fluent_bit_dns_log_paths:
+  - "/var/log/coredns/*.log"
+  - "/var/log/dnsmasq/*.log"
+  - "/var/log/unbound/*.log"
+
+# Log processing configuration
+fluent_bit_buffer_chunk_size: "1MB"
+fluent_bit_buffer_max_size: "5MB"
+fluent_bit_flush_interval: "5"
+fluent_bit_log_level: "info"
+
+# Parsers configuration
+fluent_bit_parsers:
+  - name: "dns_query"
+    format: "regex"
+    regex: '^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s+\[(?<level>\w+)\]\s+(?<client_ip>\d+\.\d+\.\d+\.\d+):(?<client_port>\d+)\s+->\s+(?<query_name>\S+)\s+(?<query_type>\w+)\s+(?<response_code>\w+)\s+(?<response_time>\d+)ms'
+    time_key: "timestamp"
+    time_format: "%Y-%m-%dT%H:%M:%S.%LZ"
+
+  - name: "coredns"
+    format: "regex"
+    regex: '^(?<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s+\[(?<level>\w+)\]\s+plugin/(?<plugin>\w+):\s+(?<client_ip>\d+\.\d+\.\d+\.\d+):(?<client_port>\d+)\s+-\s+(?<query_id>\d+)\s+"(?<query_type>\w+)\s+(?<query_class>\w+)\s+(?<query_name>\S+)\."\s+(?<response_code>\w+)\s+(?<flags>\w+)\s+(?<response_size>\d+)\s+(?<response_time>[\d.]+)s'
+    time_key: "timestamp"
+    time_format: "%Y-%m-%dT%H:%M:%S.%LZ"
+
+# Filters configuration
+fluent_bit_filters:
+  - name: "modify"
+    match: "dns.*"
+    operations:
+      - "Add hostname {{ ansible_hostname }}"
+      - "Add region {{ ansible_ec2_placement_region | default('unknown') }}"
+      - "Add environment {{ environment | default('production') }}"
+
+  - name: "grep"
+    match: "dns.*"
+    regex: "level INFO"
+
+# Service configuration
+fluent_bit_service_config:
+  flush: "{{ fluent_bit_flush_interval }}"
+  daemon: "off"
+  log_level: "{{ fluent_bit_log_level }}"
+  parsers_file: "parsers.conf"
+  plugins_file: "plugins.conf"
+  http_server: "on"
+  http_listen: "{{ fluent_bit_listen_address }}"
+  http_port: "{{ fluent_bit_port }}"
+  storage_path: "{{ fluent_bit_data_dir }}/storage"
+  storage_sync: "normal"
+  storage_checksum: "off"
+  storage_backlog_mem_limit: "5M"
+
+# Firewall configuration
+fluent_bit_firewall_enabled: true
+fluent_bit_firewall_source_ranges:
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "192.168.0.0/16"

@@ -1,0 +1,89 @@
+---
+- name: Validate UFW installation and configuration
+  block:
+    - name: Check UFW service status
+      systemd:
+        name: ufw
+      register: ufw_service_status
+      become: true
+
+    - name: Verify UFW is enabled
+      command: ufw status
+      register: ufw_status_check
+      changed_when: false
+      become: true
+
+    - name: Verify UFW is active
+      assert:
+        that:
+          - "'Status: active' in ufw_status_check.stdout"
+        fail_msg: "UFW is not active"
+        success_msg: "UFW is active and running"
+      when: ufw_enabled
+
+    - name: Get UFW rules
+      command: ufw status numbered
+      register: ufw_rules_list
+      changed_when: false
+      become: true
+      when: ufw_enabled
+
+    - name: Display UFW rules
+      debug:
+        var: ufw_rules_list.stdout_lines
+      when: ufw_enabled
+
+    - name: Verify SSH rule exists
+      assert:
+        that:
+          - "ufw_ssh_port in ufw_rules_list.stdout"
+        fail_msg: "SSH rule not found in UFW configuration"
+        success_msg: "SSH rule is properly configured"
+      when: ufw_enabled
+
+    - name: Check iptables rules
+      command: iptables -L -n
+      register: iptables_rules
+      changed_when: false
+      become: true
+
+    - name: Verify iptables integration
+      assert:
+        that:
+          - "'ufw-' in iptables_rules.stdout"
+        fail_msg: "UFW iptables rules not found"
+        success_msg: "UFW iptables integration is working"
+      when: ufw_enabled
+
+    - name: Test UFW configuration syntax
+      command: ufw --dry-run status
+      register: ufw_syntax_test
+      changed_when: false
+      failed_when: false
+      become: true
+
+    - name: Verify UFW configuration syntax
+      assert:
+        that:
+          - ufw_syntax_test.rc == 0
+        fail_msg: "UFW configuration has syntax errors"
+        success_msg: "UFW configuration syntax is valid"
+      when: ufw_enabled
+
+    - name: Check UFW logging
+      stat:
+        path: /var/log/ufw.log
+      register: ufw_log_file
+      when: ufw_enabled and ufw_logging != "off"
+
+    - name: Verify UFW logging is working
+      assert:
+        that:
+          - ufw_log_file.stat.exists
+        fail_msg: "UFW log file not found"
+        success_msg: "UFW logging is configured"
+      when: ufw_enabled and ufw_logging != "off"
+
+  tags:
+    - ufw
+    - validate

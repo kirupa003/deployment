@@ -1,0 +1,60 @@
+---
+- name: Ensure system is prepared for Fail2Ban
+  block:
+    - name: Update package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      become: true
+
+    - name: Ensure required directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      become: true
+      loop:
+        - /etc/fail2ban
+        - /etc/fail2ban/jail.d
+        - /etc/fail2ban/filter.d
+        - /etc/fail2ban/action.d
+        - /var/log/fail2ban
+
+    - name: Ensure log files exist with proper permissions
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: root
+        group: adm
+        mode: '0640'
+      become: true
+      loop:
+        - /var/log/fail2ban.log
+        - /var/log/auth.log
+        - /var/log/wireguard.log
+      changed_when: false
+
+    - name: Configure logrotate for fail2ban logs
+      copy:
+        dest: /etc/logrotate.d/fail2ban
+        content: |
+          /var/log/fail2ban.log {
+              weekly
+              rotate 4
+              compress
+              delaycompress
+              missingok
+              postrotate
+                  fail2ban-client flushlogs 1>/dev/null || true
+              endscript
+          }
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+
+  tags:
+    - fail2ban
+    - system

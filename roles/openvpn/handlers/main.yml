@@ -1,0 +1,56 @@
+---
+# OpenVPN Role Handlers
+
+- name: restart openvpn udp
+  systemd:
+    name: "{{ _openvpn_service_udp }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: restart openvpn tcp
+  systemd:
+    name: "{{ _openvpn_service_tcp }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: reload openvpn udp
+  systemd:
+    name: "{{ _openvpn_service_udp }}"
+    state: reloaded
+  become: true
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: reload openvpn tcp
+  systemd:
+    name: "{{ _openvpn_service_tcp }}"
+    state: reloaded
+  become: true
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+  become: true
+
+- name: apply sysctl
+  command: sysctl -p
+  become: true
+
+- name: restart ufw
+  systemd:
+    name: ufw
+    state: restarted
+  become: true
+  when: openvpn_firewall_enabled
+
+- name: update crl
+  command: "{{ _easyrsa_bin }} gen-crl"
+  args:
+    chdir: "{{ openvpn_ca_dir }}"
+  become: true
+  environment:
+    EASYRSA_BATCH: "1"

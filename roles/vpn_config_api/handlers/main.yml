@@ -1,0 +1,13 @@
+---
+# VPN Config API handlers
+
+- name: Restart VPN Config API
+  community.docker.docker_compose_v2:
+    project_src: "{{ vpn_api_data_dir }}"
+    state: present
+    recreate: always
+
+- name: Stop VPN Config API
+  community.docker.docker_compose_v2:
+    project_src: "{{ vpn_api_data_dir }}"
+    state: absent

@@ -1,0 +1,87 @@
+---
+# Consolidated Ansible Galaxy Collections and Roles for VPN Infrastructure
+# Merged from planet-proxy-devops-controller and the-deployment
+# Production-optimized versions for enterprise deployment
+# Install with: ansible-galaxy install -r requirements.yml --force
+
+collections:
+  # Core collections required for VPN infrastructure deployment
+  
+  # Community General Collection - Essential utilities and modules
+  - name: community.general
+    version: ">=8.0.0"
+    
+  # Ansible POSIX Collection - POSIX system management and services
+  - name: ansible.posix
+    version: ">=1.5.0"
+    
+  # Kubernetes Core Collection - Kubernetes resource management for control plane
+  - name: kubernetes.core
+    version: ">=2.4.0"
+    
+  # HashiCorp Vault integration - Production secrets management
+  - name: community.hashi_vault
+    version: ">=6.0.0"
+    
+  # Community Crypto Collection - Certificate and key management for OpenVPN/WireGuard
+  - name: community.crypto
+    version: ">=2.15.0"
+    
+  # Community Docker Collection - Docker container management for dashboards
+  - name: community.docker
+    version: ">=3.4.0"
+    
+  # Community MySQL Collection - Database management for monitoring
+  - name: community.mysql
+    version: ">=3.7.0"
+    
+  # Community PostgreSQL Collection - Database management for Semaphore/AWX
+  - name: community.postgresql
+    version: ">=3.0.0"
+    
+  # Grafana Collection - Monitoring and observability
+  - name: grafana.grafana
+    version: ">=2.0.0"
+    
+  # Prometheus Collection - Metrics collection and monitoring
+  - name: prometheus.prometheus
+    version: ">=1.0.0"
+
+roles:
+  # Infrastructure roles for VPN server setup
+  
+  # Docker management for containerized services
+  - name: geerlingguy.docker
+    version: ">=6.1.0"
+    
+  # Python pip for package management
+  - name: geerlingguy.pip
+    version: ">=2.2.0"
+    
+  # Firewall management for security
+  - name: geerlingguy.firewall
+    version: ">=2.6.0"
+    
+  # Security hardening for VPN servers
+  - name: dev-sec.os-hardening
+    version: ">=7.10.0"
+    
+  # SSH hardening for secure access
+  - name: dev-sec.ssh-hardening
+    version: ">=10.0.0"
+    
+  # Nginx for reverse proxy and load balancing
+  - name: geerlingguy.nginx
+    version: ">=3.1.0"
+    
+  # WireGuard role - Production-grade WireGuard deployment
+  - name: githubixx.ansible_role_wireguard
+    version: ">=12.0.0"
+
+  # Fail2ban role - Intrusion prevention
+  - name: robertdebock.fail2ban
+    version: ">=5.0.0"
+
+  # Node exporter role - System metrics collection
+  - name: prometheus.prometheus.node_exporter
+    version: ">=0.25.0"

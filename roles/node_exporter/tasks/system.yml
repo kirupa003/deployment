@@ -1,0 +1,40 @@
+---
+- name: Create node_exporter group
+  group:
+    name: "{{ node_exporter_group }}"
+    system: true
+    state: present
+  become: true
+
+- name: Create node_exporter user
+  user:
+    name: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ node_exporter_data_dir }}"
+    createhome: false
+    state: present
+  become: true
+
+- name: Create node_exporter directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ node_exporter_config_dir }}"
+    - "{{ node_exporter_data_dir }}"
+    - "{{ node_exporter_textfile_dir }}"
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - tar
+      - gzip
+    state: present
+  become: true

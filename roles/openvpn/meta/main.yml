@@ -1,0 +1,26 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: OpenVPN server with PKI certificate management
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - vpn
+    - openvpn
+    - networking
+    - security
+    - pki
+
+dependencies:
+  - role: common
+    when: common_role_enabled | default(true)

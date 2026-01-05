@@ -1,0 +1,53 @@
+---
+- name: Ensure system is prepared for SSH hardening
+  block:
+    - name: Backup original SSH configuration
+      copy:
+        src: "{{ ssh_config_file }}"
+        dest: "{{ ssh_config_file }}.backup.{{ ansible_date_time.epoch }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: preserve
+      become: true
+      when: ssh_backup_original
+
+    - name: Ensure SSH configuration directory exists
+      file:
+        path: "{{ ssh_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      become: true
+
+    - name: Create SSH banner file
+      copy:
+        content: "{{ ssh_banner_content }}"
+        dest: "{{ ssh_banner }}"
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      when: ssh_banner_enabled
+
+    - name: Remove SSH banner file if disabled
+      file:
+        path: "{{ ssh_banner }}"
+        state: absent
+      become: true
+      when: not ssh_banner_enabled
+
+    - name: Check current SSH service status
+      systemd:
+        name: "{{ ssh_service_name }}"
+      register: ssh_current_status
+      become: true
+
+    - name: Display current SSH service status
+      debug:
+        msg: "SSH service is {{ ssh_current_status.status.ActiveState }}"
+
+  tags:
+    - ssh_hardening
+    - system

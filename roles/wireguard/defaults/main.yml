@@ -1,0 +1,65 @@
+---
+# WireGuard Role Default Variables
+
+# Package Installation
+wireguard_packages:
+  - wireguard
+  - wireguard-tools
+  - qrencode
+  - iptables-persistent
+
+# WireGuard Server Configuration
+wireguard_enabled: true
+wireguard_interface: wg0
+wireguard_port: 51820
+wireguard_network: 10.10.0.0/24
+wireguard_server_ip: 10.10.0.1
+wireguard_dns: 
+  - 1.1.1.1
+  - 8.8.8.8
+wireguard_mtu: 1420
+wireguard_persistent_keepalive: 25
+
+# WireGuard Dashboard Configuration
+wg_dashboard_enabled: true
+wg_dashboard_port: 10086
+wg_dashboard_version: "v4.0.2"
+wg_dashboard_admin_user: admin
+wg_dashboard_theme: dark
+wg_dashboard_docker_image: "dselen/wireguard-ui:{{ wg_dashboard_version }}"
+wg_dashboard_data_dir: /opt/wireguard-dashboard
+wg_dashboard_config_dir: "{{ wg_dashboard_data_dir }}/config"
+
+# Client Management
+max_clients: 500
+client_subnet: 10.10.0.0/24
+client_ip_range_start: 10.10.0.10
+client_ip_range_end: 10.10.0.254
+client_config_dir: /etc/wireguard/clients
+client_qr_dir: /var/www/html/qr-codes
+
+# Key Management
+wireguard_config_dir: /etc/wireguard
+wireguard_keys_dir: "{{ wireguard_config_dir }}/keys"
+key_rotation_days: 90
+automatic_key_rotation: true
+
+# Firewall Configuration
+wireguard_firewall_enabled: true
+wireguard_forward_interface: "{{ ansible_default_ipv4.interface }}"
+
+# Performance Tuning
+wireguard_kernel_params:
+  net.ipv4.ip_forward: 1
+  net.ipv6.conf.all.forwarding: 1
+  net.core.netdev_max_backlog: 5000
+  net.core.rmem_max: 134217728
+  net.core.wmem_max: 134217728
+
+# Service Configuration
+wireguard_service_enabled: true
+wireguard_service_state: started
+
+# Docker Configuration for Dashboard
+docker_compose_version: "2.20.0"
+docker_network_name: wireguard-net

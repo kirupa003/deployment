@@ -1,0 +1,47 @@
+---
+- name: Manage SSH service
+  block:
+    - name: Ensure SSH service is configured
+      systemd:
+        name: "{{ ssh_service_name }}"
+        state: "{{ ssh_service_state }}"
+        enabled: "{{ ssh_service_enabled }}"
+        daemon_reload: true
+      become: true
+      when: ssh_enabled
+
+    - name: Stop and disable SSH service
+      systemd:
+        name: "{{ ssh_service_name }}"
+        state: stopped
+        enabled: false
+      become: true
+      when: not ssh_enabled
+
+    - name: Wait for SSH service to be ready
+      wait_for:
+        port: "{{ ssh_port }}"
+        host: "{{ ssh_listen_address }}"
+        timeout: 30
+      when: ssh_enabled and ssh_service_state == 'started'
+
+    - name: Check SSH service status
+      systemd:
+        name: "{{ ssh_service_name }}"
+      register: ssh_service_status
+      become: true
+
+    - name: Display SSH service status
+      debug:
+        msg: "SSH service is {{ ssh_service_status.status.ActiveState }}"
+
+    - name: Verify SSH is listening on correct port
+      wait_for:
+        port: "{{ ssh_port }}"
+        host: "{{ ssh_listen_address }}"
+        timeout: 10
+      when: ssh_enabled and ssh_service_state == 'started'
+
+  tags:
+    - ssh_hardening
+    - service

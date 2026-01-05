@@ -1,0 +1,49 @@
+# {{ ansible_managed }}
+# VPN Configuration API Service
+
+services:
+  vpn-config-api:
+    build:
+      context: ./app
+      dockerfile: ../Dockerfile
+    image: {{ vpn_api_image }}
+    container_name: {{ vpn_api_container_name }}
+    restart: unless-stopped
+
+    environment:
+      # Database
+      - DB_HOST={{ vpn_api_db_host }}
+      - DB_PORT={{ vpn_api_db_port }}
+      - DB_NAME={{ vpn_api_db_name }}
+      - DB_USER={{ vpn_api_db_user }}
+      - DB_PASSWORD={{ vpn_api_db_password }}
+
+      # API settings
+      - SECRET_KEY={{ vpn_api_secret_key }}
+      - LOG_LEVEL={{ vpn_api_log_level }}
+      - ADMIN_API_KEY={{ vault_vpn_admin_api_key | default('changeme') }}
+
+      # Gateway tokens (format: gateway1:token1,gateway2:token2)
+      - GATEWAY_TOKENS={% for gw, token in vpn_api_gateway_tokens.items() %}{{ gw }}:{{ token }}{% if not loop.last %},{% endif %}{% endfor %}
+
+      # CORS
+      - CORS_ORIGINS={{ vpn_api_cors_origins | join(',') }}
+
+    ports:
+      - "{{ vpn_api_port }}:8080"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

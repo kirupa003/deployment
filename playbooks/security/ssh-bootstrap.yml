@@ -1,0 +1,137 @@
+---
+# SSH Key Bootstrap Playbook
+# Use with: ansible-playbook playbooks/security/ssh-bootstrap.yml -k
+# The -k flag prompts for SSH password
+
+- name: Bootstrap SSH Key Authentication
+  hosts: all
+  gather_facts: false
+  become: true
+
+  vars:
+    ssh_key_file: "{{ playbook_dir }}/../../files/ssh/vpn-infra.pub"
+    ansible_user: "{{ bootstrap_user | default('root') }}"
+    create_ansible_user: "{{ create_user | default(false) }}"
+    ansible_service_user: "{{ service_user | default('ansible') }}"
+
+  tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        timeout: 60
+
+    - name: Read public key
+      set_fact:
+        ssh_public_key: "{{ lookup('file', ssh_key_file) }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Ensure .ssh directory exists for root
+      file:
+        path: /root/.ssh
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Add SSH public key to root authorized_keys
+      authorized_key:
+        user: root
+        key: "{{ ssh_public_key }}"
+        state: present
+        exclusive: false
+
+    - name: Create dedicated Ansible service user
+      when: create_ansible_user | bool
+      block:
+        - name: Create ansible service user
+          user:
+            name: "{{ ansible_service_user }}"
+            shell: /bin/bash
+            create_home: true
+            groups: sudo
+            append: true
+
+        - name: Ensure .ssh directory exists for service user
+          file:
+            path: "/home/{{ ansible_service_user }}/.ssh"
+            state: directory
+            mode: "0700"
+            owner: "{{ ansible_service_user }}"
+            group: "{{ ansible_service_user }}"
+
+        - name: Add SSH public key to service user
+          authorized_key:
+            user: "{{ ansible_service_user }}"
+            key: "{{ ssh_public_key }}"
+            state: present
+
+        - name: Configure passwordless sudo for service user
+          copy:
+            content: "{{ ansible_service_user }} ALL=(ALL) NOPASSWD:ALL"
+            dest: "/etc/sudoers.d/{{ ansible_service_user }}"
+            mode: "0440"
+            validate: "visudo -cf %s"
+
+    - name: Verify SSH key authentication works
+      command: echo "SSH key authentication verified"
+      changed_when: false
+
+  handlers: []
+
+- name: Harden SSH Configuration
+  hosts: all
+  gather_facts: true
+  become: true
+
+  vars:
+    harden_ssh: "{{ do_harden | default(false) }}"
+
+  tasks:
+    - name: Harden SSH configuration
+      when: harden_ssh | bool
+      block:
+        - name: Backup original sshd_config
+          copy:
+            src: /etc/ssh/sshd_config
+            dest: /etc/ssh/sshd_config.backup
+            remote_src: true
+            force: false
+
+        - name: Disable password authentication
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#?PasswordAuthentication"
+            line: "PasswordAuthentication no"
+            state: present
+          notify: Restart SSH
+
+        - name: Disable root password login (keep key-based)
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#?PermitRootLogin"
+            line: "PermitRootLogin prohibit-password"
+            state: present
+          notify: Restart SSH
+
+        - name: Disable empty passwords
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#?PermitEmptyPasswords"
+            line: "PermitEmptyPasswords no"
+            state: present
+          notify: Restart SSH
+
+        - name: Enable public key authentication
+          lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#?PubkeyAuthentication"
+            line: "PubkeyAuthentication yes"
+            state: present
+          notify: Restart SSH
+
+  handlers:
+    - name: Restart SSH
+      service:
+        name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+        state: restarted

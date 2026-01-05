@@ -1,0 +1,73 @@
+---
+# Fail2Ban default configuration
+
+# Service configuration
+fail2ban_enabled: true
+fail2ban_service_state: started
+fail2ban_service_enabled: true
+
+# Global configuration
+fail2ban_bantime: 3600  # 1 hour
+fail2ban_findtime: 600  # 10 minutes
+fail2ban_maxretry: 5
+fail2ban_backend: systemd
+fail2ban_loglevel: INFO
+fail2ban_logtarget: /var/log/fail2ban.log
+
+# Email notifications
+fail2ban_destemail: root@localhost
+fail2ban_sender: fail2ban@{{ ansible_fqdn }}
+fail2ban_mta: sendmail
+fail2ban_action: "%(action_mwl)s"
+
+# Whitelist configuration
+fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+
+# SSH jail configuration
+fail2ban_ssh_enabled: true
+fail2ban_ssh_port: "{{ ansible_port | default('22') }}"
+fail2ban_ssh_filter: sshd
+fail2ban_ssh_logpath: /var/log/auth.log
+fail2ban_ssh_maxretry: 3
+fail2ban_ssh_bantime: 7200  # 2 hours
+fail2ban_ssh_findtime: 600
+
+# OpenVPN jail configuration
+fail2ban_openvpn_enabled: true
+fail2ban_openvpn_port: "1194"
+fail2ban_openvpn_protocol: udp
+fail2ban_openvpn_filter: openvpn
+fail2ban_openvpn_logpath: /var/log/openvpn/openvpn.log
+fail2ban_openvpn_maxretry: 3
+fail2ban_openvpn_bantime: 3600
+fail2ban_openvpn_findtime: 600
+
+# WireGuard jail configuration (custom)
+fail2ban_wireguard_enabled: true
+fail2ban_wireguard_port: "51820"
+fail2ban_wireguard_protocol: udp
+fail2ban_wireguard_filter: wireguard
+fail2ban_wireguard_logpath: /var/log/wireguard.log
+fail2ban_wireguard_maxretry: 5
+fail2ban_wireguard_bantime: 1800
+fail2ban_wireguard_findtime: 300
+
+# Additional security jails
+fail2ban_apache_enabled: false
+fail2ban_nginx_enabled: false
+fail2ban_postfix_enabled: false
+
+# Custom actions
+fail2ban_custom_actions: []
+
+# Recidive jail for repeat offenders
+fail2ban_recidive_enabled: true
+fail2ban_recidive_logpath: /var/log/fail2ban.log
+fail2ban_recidive_bantime: 86400  # 24 hours
+fail2ban_recidive_findtime: 86400
+fail2ban_recidive_maxretry: 3

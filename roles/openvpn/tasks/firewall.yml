@@ -1,0 +1,87 @@
+---
+# OpenVPN Firewall Configuration
+
+- name: Install UFW firewall
+  apt:
+    name: ufw
+    state: present
+  become: true
+
+- name: Reset UFW to defaults
+  ufw:
+    state: reset
+  become: true
+
+- name: Set UFW default policies
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  become: true
+  loop:
+    - { direction: 'incoming', policy: 'deny' }
+    - { direction: 'outgoing', policy: 'allow' }
+    - { direction: 'routed', policy: 'allow' }
+
+- name: Allow SSH access
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+  become: true
+
+- name: Allow OpenVPN UDP port
+  ufw:
+    rule: allow
+    port: "{{ openvpn_port_udp }}"
+    proto: udp
+  become: true
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: Allow OpenVPN TCP port
+  ufw:
+    rule: allow
+    port: "{{ openvpn_port_tcp }}"
+    proto: tcp
+  become: true
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: Allow management interface
+  ufw:
+    rule: allow
+    port: "{{ openvpn_management_port }}"
+    proto: tcp
+    src: "127.0.0.1"
+  become: true
+  when: openvpn_management_enabled
+
+- name: Configure NAT rules for OpenVPN
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - OpenVPN NAT"
+    insertbefore: "# Don't delete these required lines"
+    block: |
+      # NAT table rules for OpenVPN
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      # Allow traffic from OpenVPN clients to the internet
+      -A POSTROUTING -s {{ openvpn_server_network }}/{{ openvpn_server_netmask | ansible.utils.ipaddr('prefix') }} -o {{ openvpn_forward_interface }} -j MASQUERADE
+      COMMIT
+  become: true
+  notify: restart ufw
+
+- name: Configure forwarding rules
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - OpenVPN Forward"
+    insertafter: "# End required lines"
+    block: |
+      # Allow forwarding for OpenVPN
+      -A ufw-before-forward -s {{ openvpn_server_network }}/{{ openvpn_server_netmask | ansible.utils.ipaddr('prefix') }} -j ACCEPT
+      -A ufw-before-forward -d {{ openvpn_server_network }}/{{ openvpn_server_netmask | ansible.utils.ipaddr('prefix') }} -j ACCEPT
+  become: true
+  notify: restart ufw
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  become: true

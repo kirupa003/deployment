@@ -1,0 +1,43 @@
+---
+# Global variables for all VPN servers
+
+# SSH Configuration
+ansible_user: ansible
+ansible_ssh_private_key_file: ~/.ssh/ansible_rsa
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+
+# System Configuration
+timezone: UTC
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+  - 2.pool.ntp.org
+  - 3.pool.ntp.org
+
+# Security Configuration
+ssh_port: 22
+ssh_allow_users:
+  - ansible
+  - admin
+ssh_deny_users:
+  - root
+
+# Firewall Configuration
+ufw_default_policy:
+  incoming: deny
+  outgoing: allow
+  routed: deny
+
+# Monitoring Configuration
+node_exporter_port: 9100
+wg_exporter_port: 9586
+promtail_port: 9080
+
+# Log Configuration
+log_retention_days: 30
+syslog_server: logs.vpn.example.com
+
+# Update Configuration
+auto_updates_enabled: true
+security_updates_only: true
+reboot_required_check: true

@@ -1,0 +1,82 @@
+---
+- name: Create Grafana dashboards directory
+  file:
+    path: "{{ monitoring_dashboards_dir }}"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: '0755'
+  become: true
+
+- name: Create dashboard provisioning directory
+  file:
+    path: "{{ monitoring_provisioning_dir }}/dashboards"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: '0755'
+  become: true
+
+- name: Generate dashboard provisioning configuration
+  template:
+    src: dashboard-provisioning.yml.j2
+    dest: "{{ monitoring_provisioning_dir }}/dashboards/vpn-dashboards.yml"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+  notify: reload grafana
+
+- name: Generate VPN Infrastructure Overview dashboard
+  template:
+    src: dashboards/vpn-infrastructure-overview.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/vpn-infrastructure-overview.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+
+- name: Generate Server Health and Performance dashboard
+  template:
+    src: dashboards/server-health-performance.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/server-health-performance.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+
+- name: Generate VPN Service Metrics dashboard
+  template:
+    src: dashboards/vpn-service-metrics.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/vpn-service-metrics.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+
+- name: Generate DNS Analytics dashboard
+  template:
+    src: dashboards/dns-analytics.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/dns-analytics.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+
+- name: Generate Security Events dashboard
+  template:
+    src: dashboards/security-events.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/security-events.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+
+- name: Generate Log Analysis dashboard
+  template:
+    src: dashboards/log-analysis.json.j2
+    dest: "{{ monitoring_dashboards_dir }}/log-analysis.json"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true

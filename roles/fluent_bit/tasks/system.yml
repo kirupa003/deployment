@@ -1,0 +1,49 @@
+---
+- name: Create fluent-bit group
+  group:
+    name: "{{ fluent_bit_group }}"
+    system: true
+    state: present
+  become: true
+
+- name: Create fluent-bit user
+  user:
+    name: "{{ fluent_bit_user }}"
+    group: "{{ fluent_bit_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ fluent_bit_data_dir }}"
+    createhome: false
+    state: present
+  become: true
+
+- name: Add fluent-bit user to adm group for log access
+  user:
+    name: "{{ fluent_bit_user }}"
+    groups: adm
+    append: true
+  become: true
+
+- name: Create fluent-bit directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ fluent_bit_user }}"
+    group: "{{ fluent_bit_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ fluent_bit_config_dir }}"
+    - "{{ fluent_bit_data_dir }}"
+    - "{{ fluent_bit_log_dir }}"
+    - "{{ fluent_bit_data_dir }}/storage"
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - tar
+      - gzip
+      - gnupg2
+    state: present
+  become: true

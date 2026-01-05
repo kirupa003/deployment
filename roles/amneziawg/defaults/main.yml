@@ -1,0 +1,81 @@
+---
+# AmneziaWG Role Default Variables
+
+# Build Dependencies
+amneziawg_build_packages:
+  - build-essential
+  - linux-headers-generic
+  - git
+  - libmnl-dev
+  - libelf-dev
+  - pkg-config
+  - qrencode
+  - iptables-persistent
+
+# AmneziaWG Configuration
+amneziawg_enabled: true
+amneziawg_interface: awg0
+amneziawg_port: 51821
+amneziawg_network: 10.30.0.0/24
+amneziawg_server_ip: 10.30.0.1
+amneziawg_dns:
+  - 1.1.1.1
+  - 8.8.8.8
+amneziawg_mtu: 1420
+amneziawg_persistent_keepalive: 25
+
+# Obfuscation Settings
+amneziawg_obfuscation_enabled: true
+amneziawg_junk_packet_count: 3
+amneziawg_junk_packet_min_size: 50
+amneziawg_junk_packet_max_size: 1000
+amneziawg_init_packet_junk_size: 200
+amneziawg_response_packet_junk_size: 200
+amneziawg_init_packet_magic_header: 4
+amneziawg_response_packet_magic_header: 4
+amneziawg_underload_packet_magic_header: 8
+amneziawg_transport_packet_magic_header: 16
+
+# Source and Build Configuration
+amneziawg_repo_url: "https://github.com/amnezia-vpn/amneziawg-linux-kernel-module.git"
+amneziawg_tools_repo_url: "https://github.com/amnezia-vpn/amneziawg-tools.git"
+amneziawg_version: "main"  # or specific tag/commit
+amneziawg_build_dir: /usr/src/amneziawg
+amneziawg_tools_build_dir: /usr/src/amneziawg-tools
+
+# Installation Paths
+amneziawg_config_dir: /etc/amneziawg
+amneziawg_keys_dir: "{{ amneziawg_config_dir }}/keys"
+amneziawg_bin_dir: /usr/local/bin
+
+# Client Management
+max_clients: 500
+client_subnet: 10.30.0.0/24
+client_ip_range_start: 10.30.0.10
+client_ip_range_end: 10.30.0.254
+client_config_dir: /etc/amneziawg/clients
+client_qr_dir: /var/www/html/awg-qr-codes
+
+# Key Management
+key_rotation_days: 90
+automatic_key_rotation: true
+
+# Performance Settings
+amneziawg_kernel_params:
+  net.ipv4.ip_forward: 1
+  net.ipv6.conf.all.forwarding: 1
+  net.core.netdev_max_backlog: 5000
+  net.core.rmem_max: 134217728
+  net.core.wmem_max: 134217728
+
+# Service Configuration
+amneziawg_service_enabled: true
+amneziawg_service_state: started
+
+# Firewall Configuration
+amneziawg_firewall_enabled: true
+amneziawg_forward_interface: "{{ ansible_default_ipv4.interface }}"
+
+# Monitoring and Logging
+amneziawg_log_dir: /var/log/amneziawg
+amneziawg_log_level: info

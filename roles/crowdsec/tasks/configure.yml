@@ -1,0 +1,67 @@
+---
+- name: Generate CrowdSec configuration
+  template:
+    src: config.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/config.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0644'
+    backup: true
+  become: true
+  notify: restart crowdsec
+
+- name: Generate CrowdSec acquisition configuration
+  template:
+    src: acquis.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/acquis.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0644'
+    backup: true
+  become: true
+  notify: restart crowdsec
+
+- name: Generate CrowdSec profiles configuration
+  template:
+    src: profiles.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/profiles.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0644'
+    backup: true
+  become: true
+  notify: restart crowdsec
+
+- name: Generate CrowdSec simulation configuration
+  template:
+    src: simulation.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/simulation.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0644'
+    backup: true
+  become: true
+  notify: restart crowdsec
+
+- name: Generate CrowdSec notification configuration
+  template:
+    src: notifications.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/notifications.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0600'
+    backup: true
+  become: true
+  notify: restart crowdsec
+  when: crowdsec_notifications.slack.enabled or crowdsec_notifications.email.enabled
+
+- name: Create CrowdSec whitelist configuration
+  template:
+    src: whitelist.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/parsers/s02-enrich/whitelist.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0644'
+    backup: true
+  become: true
+  notify: restart crowdsec

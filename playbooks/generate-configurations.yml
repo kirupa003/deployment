@@ -1,0 +1,128 @@
+---
+# Configuration Generation Playbook
+# Generates environment and server-specific configurations from templates
+
+- name: Generate VPN Infrastructure Configurations
+  hosts: localhost
+  gather_facts: false
+  vars:
+    config_output_dir: "{{ playbook_dir }}/../generated-configs"
+    template_dir: "{{ playbook_dir }}/../inventories/templates"
+    
+  tasks:
+    - name: Create output directory for generated configurations
+      file:
+        path: "{{ config_output_dir }}"
+        state: directory
+        mode: '0755'
+      tags: [setup]
+
+    - name: Generate environment configuration
+      template:
+        src: "{{ template_dir }}/environment.yml.j2"
+        dest: "{{ config_output_dir }}/environment-{{ environment_name | default('production') }}.yml"
+        mode: '0644'
+      vars:
+        environment_name: "{{ environment_name | default('production') }}"
+        environment_type: "{{ environment_type | default('production') }}"
+        domain_name: "{{ domain_name | default('vpn.example.com') }}"
+        vpn_network_cidr: "{{ vpn_network_cidr | default('10.8.0.0/16') }}"
+        total_servers: "{{ groups['vpn_servers'] | length if 'vpn_servers' in groups else 30 }}"
+        regions: "{{ regions | default(['europe', 'north_america', 'asia_pacific']) }}"
+      tags: [environment]
+
+    - name: Load inventory for server configurations
+      add_host:
+        name: "{{ item }}"
+        groups: temp_servers
+      loop: "{{ groups['vpn_servers'] if 'vpn_servers' in groups else [] }}"
+      when: groups['vpn_servers'] is defined
+      tags: [servers]
+
+- name: Generate server-specific configurations
+  hosts: vpn_servers
+  gather_facts: true
+  vars:
+    config_output_dir: "{{ playbook_dir }}/../generated-configs/servers"
+    template_dir: "{{ playbook_dir }}/../inventories/templates"
+    
+  tasks:
+    - name: Create server configurations directory
+      file:
+        path: "{{ config_output_dir }}"
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
+      tags: [setup]
+
+    - name: Generate server-specific configuration
+      template:
+        src: "{{ template_dir }}/server.yml.j2"
+        dest: "{{ config_output_dir }}/{{ inventory_hostname }}.yml"
+        mode: '0644'
+      delegate_to: localhost
+      vars:
+        server_region: "{{ group_names | select('match', '^(europe|north_america|asia_pacific)$') | first | default('unknown') }}"
+        vpn_protocols: "{{ vpn_protocols | default(['wireguard']) }}"
+        datacenter: "{{ datacenter | default('unknown') }}"
+        cloud_provider: "{{ cloud_provider | default('unknown') }}"
+        instance_type: "{{ instance_type | default('unknown') }}"
+      tags: [servers]
+
+- name: Validate generated configurations
+  hosts: localhost
+  gather_facts: false
+  vars:
+    config_output_dir: "{{ playbook_dir }}/../generated-configs"
+    
+  tasks:
+    - name: Find generated configuration files
+      find:
+        paths: "{{ config_output_dir }}"
+        patterns: "*.yml"
+        recurse: true
+      register: generated_configs
+      tags: [validate]
+
+    - name: Validate YAML syntax of generated configurations
+      include_vars:
+        file: "{{ item.path }}"
+        name: "temp_config_{{ item.path | basename | regex_replace('\\.yml$', '') | regex_replace('[^a-zA-Z0-9_]', '_') }}"
+      loop: "{{ generated_configs.files }}"
+      tags: [validate]
+
+    - name: Display validation results
+      debug:
+        msg: "✓ Successfully validated {{ generated_configs.files | length }} configuration files"
+      tags: [validate]
+
+    - name: Generate configuration summary
+      template:
+        src: "{{ playbook_dir }}/templates/configuration-summary.j2"
+        dest: "{{ config_output_dir }}/configuration-summary.md"
+        mode: '0644'
+      vars:
+        generation_timestamp: "{{ ansible_date_time.iso8601 }}"
+        total_configs: "{{ generated_configs.files | length }}"
+        config_files: "{{ generated_configs.files }}"
+      tags: [summary]
+
+    - name: Display generation summary
+      debug:
+        msg: |
+          Configuration Generation Complete!
+          =================================
+          
+          Generated {{ generated_configs.files | length }} configuration files in: {{ config_output_dir }}
+          
+          Files created:
+          {% for file in generated_configs.files %}
+          - {{ file.path | basename }}
+          {% endfor %}
+          
+          Next steps:
+          1. Review generated configurations in {{ config_output_dir }}
+          2. Validate configurations: scripts/validate-configuration.py --path {{ config_output_dir }}
+          3. Backup configurations: scripts/backup-configuration.sh backup
+      tags: [summary]

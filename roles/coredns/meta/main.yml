@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: CoreDNS deployment with ad-blocking capabilities for VPN infrastructure
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+dependencies: []
+
+collections:
+  - community.general
+  - ansible.posix

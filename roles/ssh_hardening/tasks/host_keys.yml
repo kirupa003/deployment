@@ -1,0 +1,60 @@
+---
+- name: Manage SSH host keys
+  block:
+    - name: Remove existing weak host keys
+      file:
+        path: "{{ item }}"
+        state: absent
+      become: true
+      loop:
+        - "/etc/ssh/ssh_host_dsa_key"
+        - "/etc/ssh/ssh_host_dsa_key.pub"
+        - "/etc/ssh/ssh_host_rsa_key"
+        - "/etc/ssh/ssh_host_rsa_key.pub"
+      when: ssh_host_key_algorithms is defined
+
+    - name: Generate new SSH host keys
+      command: >
+        ssh-keygen -t {{ item.type }}
+        {% if item.bits is defined %}-b {{ item.bits }}{% endif %}
+        -f {{ item.file }}
+        -N ""
+        -q
+      become: true
+      loop: "{{ ssh_host_keys }}"
+      args:
+        creates: "{{ item.file }}"
+
+    - name: Set proper permissions on SSH host keys
+      file:
+        path: "{{ item.file }}"
+        owner: root
+        group: root
+        mode: '0600'
+      become: true
+      loop: "{{ ssh_host_keys }}"
+
+    - name: Set proper permissions on SSH host public keys
+      file:
+        path: "{{ item.file }}.pub"
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      loop: "{{ ssh_host_keys }}"
+
+    - name: Get SSH host key fingerprints
+      command: "ssh-keygen -lf {{ item.file }}.pub"
+      register: ssh_key_fingerprints
+      changed_when: false
+      become: true
+      loop: "{{ ssh_host_keys }}"
+
+    - name: Display SSH host key fingerprints
+      debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ ssh_key_fingerprints.results }}"
+
+  tags:
+    - ssh_hardening
+    - host_keys

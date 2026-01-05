@@ -1,0 +1,75 @@
+AmneziaWG Installation Verification Report
+==========================================
+
+Generated: {{ ansible_date_time.iso8601 }}
+Server: {{ inventory_hostname }}
+Ansible User: {{ ansible_user }}
+
+Configuration Summary:
+---------------------
+Interface: {{ amneziawg_interface }}
+Server IP: {{ amneziawg_server_ip }}
+Network: {{ amneziawg_network }}
+Listen Port: {{ amneziawg_port }}
+MTU: {{ amneziawg_mtu }}
+Obfuscation: {{ 'Enabled' if amneziawg_obfuscation_enabled else 'Disabled' }}
+
+Service Status:
+--------------
+AmneziaWG Service: {{ amneziawg_service_status.status.ActiveState }}
+Interface Status: {{ 'UP' if awg_interface_status.rc == 0 else 'DOWN' }}
+Kernel Module: {{ 'Loaded' if awg_module_status.rc == 0 else 'Not Loaded' }}
+
+{% if amneziawg_obfuscation_enabled %}
+Obfuscation Parameters:
+----------------------
+Junk Packet Count: {{ amneziawg_junk_packet_count }}
+Junk Packet Size: {{ amneziawg_junk_packet_min_size }}-{{ amneziawg_junk_packet_max_size }} bytes
+Init Packet Junk: {{ amneziawg_init_packet_junk_size }} bytes
+Response Packet Junk: {{ amneziawg_response_packet_junk_size }} bytes
+Magic Headers: H1={{ amneziawg_init_packet_magic_header }}, H2={{ amneziawg_response_packet_magic_header }}, H3={{ amneziawg_underload_packet_magic_header }}, H4={{ amneziawg_transport_packet_magic_header }}
+{% endif %}
+
+Network Configuration:
+---------------------
+{% if awg_interface_status.rc == 0 %}
+Interface Status: UP
+{% else %}
+Interface Status: DOWN
+{% endif %}
+
+Firewall Status:
+---------------
+{% if amneziawg_firewall_enabled %}
+UFW Status: {{ ufw_status.stdout_lines[0] if ufw_status.stdout_lines else 'Unknown' }}
+{% else %}
+UFW: Disabled
+{% endif %}
+
+Server Keys:
+-----------
+Public Key: {{ amneziawg_server_public_key }}
+
+Client Management:
+-----------------
+Max Clients: {{ max_clients }}
+Client Subnet: {{ client_subnet }}
+Config Directory: {{ client_config_dir }}
+QR Code Directory: {{ client_qr_dir }}
+
+Management Commands:
+-------------------
+Add Client: awg-add-client <name>
+Remove Client: awg-remove-client <name>
+List Clients: awg-list-clients
+Generate QR: awg-generate-qr <name>
+Status: awg-status.sh
+
+Build Information:
+-----------------
+Kernel Module Source: {{ amneziawg_repo_url }}
+Tools Source: {{ amneziawg_tools_repo_url }}
+Version: {{ amneziawg_version }}
+Build Directory: {{ amneziawg_build_dir }}
+
+Installation Complete: {{ ansible_date_time.iso8601 }}

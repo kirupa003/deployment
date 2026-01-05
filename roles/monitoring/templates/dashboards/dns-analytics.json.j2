@@ -1,0 +1,57 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "DNS Analytics",
+    "tags": ["dns", "analytics", "coredns"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "{{ monitoring_dashboard_refresh_interval }}",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "DNS Query Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum(rate(coredns_dns_requests_total[5m]))",
+            "refId": "A",
+            "legendFormat": "Queries/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Response Codes",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (rcode) (rate(coredns_dns_responses_total[5m]))",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} rcode {{ '}}' }}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Query Types",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "sum by (type) (rate(coredns_dns_requests_total[5m]))",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} type {{ '}}' }}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+      }
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  }
+}

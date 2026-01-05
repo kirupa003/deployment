@@ -1,0 +1,205 @@
+---
+# WireGuard Dashboard Deployment Playbook
+# Complete WireGuard deployment with dashboard integration
+# Requirements: 4.1, 1.2
+
+- name: Deploy WireGuard with Dashboard
+  hosts: wireguard_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ batch_size | default(5) }}"
+  
+  vars:
+    deployment_timestamp: "{{ ansible_date_time.epoch }}"
+    deployment_id: "wg-deploy-{{ deployment_timestamp }}"
+    
+  pre_tasks:
+    - name: Validate deployment prerequisites
+      block:
+        - name: Check system requirements
+          assert:
+            that:
+              - ansible_distribution in ['Ubuntu', 'Debian']
+              - ansible_distribution_major_version | int >= 18
+            fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+            
+        - name: Verify network connectivity
+          wait_for:
+            host: "{{ ansible_default_ipv4.gateway }}"
+            port: 53
+            timeout: 10
+          delegate_to: localhost
+          
+        - name: Check available disk space
+          assert:
+            that:
+              - ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first > 2147483648
+            fail_msg: "Insufficient disk space (minimum 2GB required)"
+            
+    - name: Create deployment log entry
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting WireGuard deployment {{ deployment_id }} on {{ inventory_hostname }}"
+        create: yes
+      delegate_to: localhost
+      run_once: true
+
+  roles:
+    - role: ssh_hardening
+      tags: ['security', 'ssh']
+      
+    - role: ufw
+      tags: ['security', 'firewall']
+      
+    - role: fail2ban
+      tags: ['security', 'intrusion-prevention']
+      
+    - role: crowdsec
+      tags: ['security', 'threat-intelligence']
+      
+    - role: wireguard
+      tags: ['vpn', 'wireguard']
+      
+    - role: amneziawg
+      when: amneziawg_enabled | default(false)
+      tags: ['vpn', 'amneziawg']
+      
+    - role: node_exporter
+      tags: ['monitoring', 'metrics']
+      
+    - role: wg_exporter
+      tags: ['monitoring', 'wireguard-metrics']
+      
+    - role: promtail
+      tags: ['monitoring', 'logs']
+      
+    - role: coredns
+      tags: ['dns', 'adblock']
+
+  post_tasks:
+    - name: Verify WireGuard service status
+      systemd:
+        name: "wg-quick@{{ wireguard_interface }}"
+        state: started
+        enabled: yes
+      register: wg_service_status
+      
+    - name: Verify WireGuard Dashboard status
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ wg_dashboard_port }}"
+        method: GET
+        status_code: 200
+        timeout: 30
+      when: wg_dashboard_enabled | default(true)
+      register: dashboard_status
+      
+    - name: Run connectivity tests
+      command: wg show {{ wireguard_interface }}
+      register: wg_status
+      changed_when: false
+      
+    - name: Generate deployment report
+      template:
+        src: deployment-report.j2
+        dest: "/tmp/wireguard-deployment-{{ deployment_id }}-{{ inventory_hostname }}.txt"
+      vars:
+        deployment_type: "WireGuard with Dashboard"
+        services_deployed:
+          - WireGuard VPN
+          - WireGuard Dashboard
+          - Node Exporter
+          - WG Exporter
+          - Promtail
+          - CoreDNS
+          - CrowdSec
+          - Fail2Ban
+          - UFW Firewall
+        service_status:
+          wireguard: "{{ wg_service_status.state }}"
+          dashboard: "{{ 'active' if dashboard_status.status == 200 else 'failed' }}"
+          
+    - name: Update deployment log with completion
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed WireGuard deployment {{ deployment_id }} on {{ inventory_hostname }} - Status: {{ 'SUCCESS' if wg_service_status.state == 'started' else 'FAILED' }}"
+      delegate_to: localhost
+
+  handlers:
+    - name: restart wireguard
+      systemd:
+        name: "wg-quick@{{ wireguard_interface }}"
+        state: restarted
+        
+    - name: restart dashboard
+      docker_compose:
+        project_src: /opt/wireguard-dashboard
+        state: present
+        restarted: yes
+      when: wg_dashboard_enabled | default(true)
+
+# Deployment validation and rollback procedures
+- name: Validate Deployment and Handle Failures
+  hosts: wireguard_servers
+  become: yes
+  gather_facts: no
+  serial: 1
+  
+  tasks:
+    - name: Comprehensive service validation
+      block:
+        - name: Check WireGuard interface
+          command: ip link show {{ wireguard_interface }}
+          register: interface_check
+          
+        - name: Validate WireGuard configuration
+          command: wg-quick strip {{ wireguard_interface }}
+          register: config_validation
+          
+        - name: Test DNS resolution
+          command: nslookup google.com {{ ansible_default_ipv4.address }}
+          register: dns_test
+          
+        - name: Check monitoring endpoints
+          uri:
+            url: "http://{{ ansible_default_ipv4.address }}:{{ item }}/metrics"
+            method: GET
+            status_code: 200
+          loop:
+            - "{{ node_exporter_port }}"
+            - "{{ wg_exporter_port }}"
+          register: metrics_check
+          
+      rescue:
+        - name: Log deployment failure
+          lineinfile:
+            path: /var/log/ansible-deployments.log
+            line: "{{ ansible_date_time.iso8601 }} - DEPLOYMENT FAILURE on {{ inventory_hostname }} - Initiating rollback"
+          delegate_to: localhost
+          
+        - name: Stop failed services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - "wg-quick@{{ wireguard_interface }}"
+            - node_exporter
+            - wg_exporter
+          ignore_errors: yes
+          
+        - name: Notify operations team
+          mail:
+            to: "{{ ops_email | default('ops@example.com') }}"
+            subject: "WireGuard Deployment Failed - {{ inventory_hostname }}"
+            body: |
+              WireGuard deployment failed on {{ inventory_hostname }}.
+              
+              Deployment ID: {{ deployment_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Please check the server and retry deployment.
+          delegate_to: localhost
+          when: notify_on_failure | default(true)
+          
+        - name: Fail the deployment
+          fail:
+            msg: "WireGuard deployment validation failed on {{ inventory_hostname }}"

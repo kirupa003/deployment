@@ -1,0 +1,42 @@
+# {{ ansible_managed }}
+# PostgreSQL Configuration for VPN Config Database
+
+# Connection settings
+listen_addresses = '*'
+port = {{ vpn_db_port }}
+max_connections = {{ vpn_db_max_connections }}
+
+# Memory
+shared_buffers = {{ vpn_db_shared_buffers }}
+work_mem = 16MB
+maintenance_work_mem = 128MB
+
+# WAL
+wal_level = replica
+max_wal_senders = 3
+wal_keep_size = 256MB
+
+# Logging
+log_destination = 'stderr'
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+log_min_duration_statement = 1000
+log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d '
+
+{% if vpn_db_ssl_enabled %}
+# SSL
+ssl = on
+ssl_cert_file = '{{ vpn_db_ssl_cert }}'
+ssl_key_file = '{{ vpn_db_ssl_key }}'
+{% endif %}
+
+# Performance
+effective_cache_size = 512MB
+random_page_cost = 1.1
+
+# Autovacuum
+autovacuum = on
+autovacuum_max_workers = 3

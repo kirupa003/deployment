@@ -1,0 +1,16 @@
+---
+- name: Enable and start node_exporter service
+  systemd:
+    name: node_exporter
+    enabled: "{{ node_exporter_service_enabled }}"
+    state: "{{ node_exporter_service_state }}"
+    daemon_reload: true
+  become: true
+
+- name: Wait for node_exporter to be ready
+  wait_for:
+    port: "{{ node_exporter_port }}"
+    host: "{{ node_exporter_listen_address }}"
+    delay: 5
+    timeout: 30
+  when: node_exporter_service_state == "started"

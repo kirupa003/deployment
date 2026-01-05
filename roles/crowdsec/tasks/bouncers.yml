@@ -1,0 +1,65 @@
+---
+- name: Check existing bouncers
+  command: "cscli bouncers list -o json"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  register: existing_bouncers
+  changed_when: false
+
+- name: Parse existing bouncers
+  set_fact:
+    existing_bouncer_names: "{{ (existing_bouncers.stdout | from_json) | map(attribute='name') | list }}"
+
+- name: Generate bouncer API keys
+  set_fact:
+    bouncer_keys: "{{ bouncer_keys | default({}) | combine({item.name: lookup('password', '/dev/null length=64 chars=ascii_letters,digits')}) }}"
+  loop: "{{ crowdsec_bouncers }}"
+  when: item.api_key == ""
+
+- name: Use provided bouncer API keys
+  set_fact:
+    bouncer_keys: "{{ bouncer_keys | default({}) | combine({item.name: item.api_key}) }}"
+  loop: "{{ crowdsec_bouncers }}"
+  when: item.api_key != ""
+
+- name: Add firewall bouncer
+  command: "cscli bouncers add {{ item.name }} --key {{ bouncer_keys[item.name] }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  loop: "{{ crowdsec_bouncers }}"
+  when: item.name not in existing_bouncer_names
+  register: bouncer_add
+  changed_when: bouncer_add.rc == 0
+
+- name: Configure firewall bouncer
+  template:
+    src: crowdsec-firewall-bouncer.yaml.j2
+    dest: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
+    owner: root
+    group: "{{ crowdsec_group }}"
+    mode: '0640'
+    backup: true
+  become: true
+  notify: restart crowdsec-firewall-bouncer
+  when: crowdsec_firewall_integration | bool
+
+- name: Set firewall bouncer API key fact
+  set_fact:
+    crowdsec_firewall_bouncer_generated_key: "{{ bouncer_keys['firewall-bouncer'] | default('') }}"
+
+- name: Set iptables bouncer API key fact
+  set_fact:
+    crowdsec_iptables_bouncer_generated_key: "{{ bouncer_keys['iptables-bouncer'] | default('') }}"
+
+- name: Validate bouncer connectivity
+  uri:
+    url: "{{ crowdsec_lapi_url }}/v1/decisions"
+    method: GET
+    headers:
+      X-Api-Key: "{{ bouncer_keys[item.name] }}"
+    status_code: 200
+  loop: "{{ crowdsec_bouncers }}"
+  register: bouncer_validation
+  retries: 3
+  delay: 5
+  until: bouncer_validation.status == 200

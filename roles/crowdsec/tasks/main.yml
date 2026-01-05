@@ -1,0 +1,48 @@
+---
+- name: Include system preparation tasks
+  include_tasks: system.yml
+  tags:
+    - crowdsec
+    - system
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - crowdsec
+    - install
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - crowdsec
+    - configure
+
+- name: Include LAPI setup tasks
+  include_tasks: lapi.yml
+  tags:
+    - crowdsec
+    - lapi
+
+- name: Include bouncer setup tasks
+  include_tasks: bouncers.yml
+  tags:
+    - crowdsec
+    - bouncers
+
+- name: Include firewall integration tasks
+  include_tasks: firewall.yml
+  tags:
+    - crowdsec
+    - firewall
+
+- name: Include service management tasks
+  include_tasks: service.yml
+  tags:
+    - crowdsec
+    - service
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - crowdsec
+    - validate

@@ -1,0 +1,375 @@
+---
+# Emergency IP Blocking Playbook
+# Rapid IP blocking across all servers for security incidents
+# Requirements: 4.3
+
+- name: Emergency IP Blocking Response
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  strategy: free  # Execute on all hosts simultaneously for speed
+  
+  vars:
+    emergency_timestamp: "{{ ansible_date_time.epoch }}"
+    emergency_id: "emergency-block-{{ emergency_timestamp }}"
+    block_duration: "{{ block_duration | default('24h') }}"  # 1h, 24h, permanent
+    block_reason: "{{ block_reason | default('Security incident') }}"
+    
+  pre_tasks:
+    - name: Validate emergency blocking prerequisites
+      block:
+        - name: Verify IP addresses to block are provided
+          assert:
+            that:
+              - block_ips is defined
+              - block_ips | length > 0
+            fail_msg: "No IP addresses provided for blocking. Use -e 'block_ips=[\"1.2.3.4\",\"5.6.7.8\"]'"
+            
+        - name: Validate IP address format
+          assert:
+            that:
+              - item | ipaddr
+            fail_msg: "Invalid IP address format: {{ item }}"
+          loop: "{{ block_ips }}"
+          
+        - name: Check for whitelist conflicts
+          assert:
+            that:
+              - item not in (whitelist_ips | default([]))
+            fail_msg: "IP {{ item }} is in whitelist and cannot be blocked"
+          loop: "{{ block_ips }}"
+          
+    - name: Create emergency response log entry
+      lineinfile:
+        path: /var/log/emergency-response.log
+        line: "{{ ansible_date_time.iso8601 }} - EMERGENCY BLOCK {{ emergency_id }} initiated on {{ inventory_hostname }} - IPs: {{ block_ips | join(',') }}"
+        create: yes
+
+  tasks:
+    # Immediate UFW Firewall Blocking
+    - name: Immediate UFW Firewall Blocking
+      block:
+        - name: Block IPs via UFW firewall
+          ufw:
+            rule: deny
+            from_ip: "{{ item }}"
+            comment: "Emergency block {{ emergency_id }} - {{ block_reason }}"
+          loop: "{{ block_ips }}"
+          register: ufw_block_results
+          
+        - name: Verify UFW blocks are active
+          command: ufw status numbered
+          register: ufw_status_check
+          changed_when: false
+          
+        - name: Log UFW blocking completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - UFW blocks applied on {{ inventory_hostname }} for {{ block_ips | length }} IPs"
+
+    # CrowdSec Decision Enforcement
+    - name: CrowdSec Decision Enforcement
+      block:
+        - name: Add CrowdSec decisions for blocked IPs
+          command: cscli decisions add --ip {{ item }} --duration {{ block_duration }} --reason "{{ block_reason }}" --type ban
+          loop: "{{ block_ips }}"
+          register: crowdsec_decisions
+          ignore_errors: yes
+          
+        - name: Verify CrowdSec decisions
+          command: cscli decisions list --ip {{ item }}
+          loop: "{{ block_ips }}"
+          register: crowdsec_verification
+          changed_when: false
+          
+        - name: Force CrowdSec bouncer reload
+          systemd:
+            name: crowdsec-firewall-bouncer
+            state: reloaded
+          ignore_errors: yes
+          
+        - name: Log CrowdSec enforcement completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - CrowdSec decisions applied on {{ inventory_hostname }} for {{ block_ips | length }} IPs"
+
+    # Fail2Ban Integration
+    - name: Fail2Ban Emergency Blocking
+      block:
+        - name: Add IPs to Fail2Ban jail
+          command: fail2ban-client set {{ item.jail }} banip {{ item.ip }}
+          loop: "{{ block_ips | product(['sshd', 'wireguard', 'openvpn']) | list | map('zip', ['ip', 'jail']) | map('dict') | list }}"
+          register: fail2ban_bans
+          ignore_errors: yes
+          
+        - name: Verify Fail2Ban bans
+          command: fail2ban-client status {{ item }}
+          loop:
+            - sshd
+            - wireguard
+            - openvpn
+          register: fail2ban_status
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Log Fail2Ban blocking completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - Fail2Ban blocks applied on {{ inventory_hostname }} for {{ block_ips | length }} IPs"
+
+    # iptables Direct Blocking (Backup Method)
+    - name: Direct iptables Blocking
+      block:
+        - name: Add direct iptables DROP rules
+          iptables:
+            chain: INPUT
+            source: "{{ item }}"
+            jump: DROP
+            comment: "Emergency block {{ emergency_id }}"
+          loop: "{{ block_ips }}"
+          register: iptables_blocks
+          
+        - name: Save iptables rules
+          shell: iptables-save > /etc/iptables/rules.v4
+          when: iptables_blocks is changed
+          
+        - name: Log iptables blocking completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - Direct iptables blocks applied on {{ inventory_hostname }} for {{ block_ips | length }} IPs"
+
+    # VPN-Specific Blocking
+    - name: VPN Service Specific Blocking
+      block:
+        - name: Block IPs in WireGuard configuration
+          block:
+            - name: Add blocked IPs to WireGuard deny list
+              lineinfile:
+                path: /etc/wireguard/blocked-ips.conf
+                line: "# Blocked IP {{ item }} - {{ block_reason }} - {{ ansible_date_time.iso8601 }}"
+                create: yes
+              loop: "{{ block_ips }}"
+              
+            - name: Update WireGuard PostUp script to include blocks
+              lineinfile:
+                path: /etc/wireguard/{{ wireguard_interface | default('wg0') }}.conf
+                regexp: "^PostUp = "
+                line: "PostUp = iptables -A FORWARD -s {{ block_ips | join(' -j DROP; iptables -A FORWARD -s ') }} -j DROP"
+                backup: yes
+              when: block_ips | length > 0
+              
+          when: "'wireguard_servers' in group_names"
+          
+        - name: Block IPs in OpenVPN configuration
+          block:
+            - name: Add client-config-dir entries for blocked IPs
+              file:
+                path: /etc/openvpn/ccd/blocked-{{ item | replace('.', '-') }}
+                state: touch
+                mode: '0644'
+              loop: "{{ block_ips }}"
+              
+            - name: Configure OpenVPN to reject blocked clients
+              lineinfile:
+                path: /etc/openvpn/ccd/blocked-{{ item | replace('.', '-') }}
+                line: "disable"
+              loop: "{{ block_ips }}"
+              
+          when: "'openvpn_servers' in group_names"
+
+    # Network-Level Blocking
+    - name: Network-Level Traffic Blocking
+      block:
+        - name: Block traffic at network interface level
+          shell: |
+            tc qdisc add dev {{ ansible_default_ipv4.interface }} root handle 1: prio
+            tc filter add dev {{ ansible_default_ipv4.interface }} parent 1: protocol ip prio 1 u32 match ip src {{ item }} flowid 1:3
+            tc qdisc add dev {{ ansible_default_ipv4.interface }} parent 1:3 handle 30: netem drop 100%
+          loop: "{{ block_ips }}"
+          register: tc_blocks
+          ignore_errors: yes
+          
+        - name: Log network-level blocking
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - Network-level blocks applied on {{ inventory_hostname }} interface {{ ansible_default_ipv4.interface }}"
+          when: tc_blocks is succeeded
+
+    # DNS Blocking (Additional Layer)
+    - name: DNS-Level Blocking
+      block:
+        - name: Add blocked IPs to CoreDNS blocklist
+          lineinfile:
+            path: /etc/coredns/blocked-ips.db
+            line: "{{ item }} IN A 0.0.0.0"
+            create: yes
+          loop: "{{ block_ips }}"
+          
+        - name: Reload CoreDNS configuration
+          systemd:
+            name: coredns
+            state: reloaded
+          
+        - name: Log DNS blocking completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - DNS-level blocks applied on {{ inventory_hostname }} for {{ block_ips | length }} IPs"
+
+  post_tasks:
+    - name: Verify blocking effectiveness
+      block:
+        - name: Test blocked IP connectivity
+          command: ping -c 1 -W 1 {{ item }}
+          loop: "{{ block_ips }}"
+          register: connectivity_test
+          ignore_errors: yes
+          changed_when: false
+          
+        - name: Verify firewall rules are active
+          command: iptables -L INPUT -n | grep {{ item }}
+          loop: "{{ block_ips }}"
+          register: firewall_verification
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Generate emergency blocking report
+          template:
+            src: emergency-block-report.j2
+            dest: "/tmp/emergency-block-{{ emergency_id }}-{{ inventory_hostname }}.txt"
+          vars:
+            blocking_summary:
+              emergency_id: "{{ emergency_id }}"
+              blocked_ips: "{{ block_ips }}"
+              block_reason: "{{ block_reason }}"
+              block_duration: "{{ block_duration }}"
+              methods_applied:
+                - UFW Firewall
+                - CrowdSec Decisions
+                - Fail2Ban Jails
+                - Direct iptables
+                - VPN Service Blocks
+                - Network Traffic Control
+                - DNS Blocking
+              verification_results: "{{ connectivity_test.results | map(attribute='rc') | list }}"
+              
+        - name: Update emergency response log with completion
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - EMERGENCY BLOCK {{ emergency_id }} completed on {{ inventory_hostname }} - {{ block_ips | length }} IPs blocked successfully"
+            
+        - name: Send emergency blocking notification
+          mail:
+            to: "{{ security_email | default('security@example.com') }}"
+            cc: "{{ ops_email | default('ops@example.com') }}"
+            subject: "EMERGENCY: IP Blocking Completed - {{ inventory_hostname }}"
+            body: |
+              EMERGENCY IP BLOCKING COMPLETED
+              
+              Server: {{ inventory_hostname }}
+              Emergency ID: {{ emergency_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Blocked IPs: {{ block_ips | join(', ') }}
+              Reason: {{ block_reason }}
+              Duration: {{ block_duration }}
+              
+              Blocking methods applied:
+              - UFW Firewall: {{ 'SUCCESS' if ufw_block_results is succeeded else 'FAILED' }}
+              - CrowdSec: {{ 'SUCCESS' if crowdsec_decisions is succeeded else 'FAILED' }}
+              - Fail2Ban: {{ 'SUCCESS' if fail2ban_bans is succeeded else 'FAILED' }}
+              - iptables: {{ 'SUCCESS' if iptables_blocks is succeeded else 'FAILED' }}
+              
+              Report: /tmp/emergency-block-{{ emergency_id }}-{{ inventory_hostname }}.txt
+          delegate_to: localhost
+          when: notify_security_team | default(true)
+
+# Aggregate emergency response results
+- name: Aggregate Emergency Response Results
+  hosts: localhost
+  gather_facts: no
+  run_once: true
+  
+  tasks:
+    - name: Collect emergency blocking reports
+      find:
+        paths: /tmp
+        patterns: "emergency-block-{{ hostvars[groups['vpn_servers'][0]]['emergency_id'] }}-*.txt"
+      register: emergency_reports
+      
+    - name: Generate infrastructure-wide emergency response summary
+      template:
+        src: infrastructure-emergency-summary.j2
+        dest: "/tmp/infrastructure-emergency-summary-{{ hostvars[groups['vpn_servers'][0]]['emergency_id'] }}.txt"
+      vars:
+        total_servers: "{{ groups['vpn_servers'] | length }}"
+        blocked_ips: "{{ hostvars[groups['vpn_servers'][0]]['block_ips'] }}"
+        block_reason: "{{ hostvars[groups['vpn_servers'][0]]['block_reason'] }}"
+        
+    - name: Send infrastructure-wide emergency notification
+      mail:
+        to: "{{ management_email | default('management@example.com') }}"
+        cc: "{{ security_email | default('security@example.com') }}"
+        subject: "CRITICAL: Infrastructure-Wide Emergency IP Blocking Completed"
+        body: |
+          CRITICAL: Infrastructure-wide emergency IP blocking has been completed.
+          
+          Emergency ID: {{ hostvars[groups['vpn_servers'][0]]['emergency_id'] }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          
+          Servers affected: {{ groups['vpn_servers'] | length }}
+          IPs blocked: {{ hostvars[groups['vpn_servers'][0]]['block_ips'] | join(', ') }}
+          Reason: {{ hostvars[groups['vpn_servers'][0]]['block_reason'] }}
+          
+          Summary report: /tmp/infrastructure-emergency-summary-{{ hostvars[groups['vpn_servers'][0]]['emergency_id'] }}.txt
+          
+          All VPN servers have implemented emergency blocking measures.
+          Please review individual server reports for detailed status.
+      when: send_management_notification | default(true)
+
+# Emergency block removal procedures
+- name: Emergency Block Removal
+  hosts: vpn_servers
+  become: yes
+  gather_facts: no
+  when: remove_emergency_blocks | default(false)
+  
+  tasks:
+    - name: Remove emergency IP blocks
+      block:
+        - name: Remove UFW blocks
+          ufw:
+            rule: deny
+            from_ip: "{{ item }}"
+            delete: yes
+          loop: "{{ block_ips }}"
+          ignore_errors: yes
+          
+        - name: Remove CrowdSec decisions
+          command: cscli decisions delete --ip {{ item }}
+          loop: "{{ block_ips }}"
+          ignore_errors: yes
+          
+        - name: Remove Fail2Ban bans
+          command: fail2ban-client set {{ item.jail }} unbanip {{ item.ip }}
+          loop: "{{ block_ips | product(['sshd', 'wireguard', 'openvpn']) | list | map('zip', ['ip', 'jail']) | map('dict') | list }}"
+          ignore_errors: yes
+          
+        - name: Remove direct iptables rules
+          iptables:
+            chain: INPUT
+            source: "{{ item }}"
+            jump: DROP
+            state: absent
+          loop: "{{ block_ips }}"
+          ignore_errors: yes
+          
+        - name: Log block removal
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - Emergency blocks removed for {{ emergency_id }} on {{ inventory_hostname }}"
+            
+      rescue:
+        - name: Log block removal failure
+          lineinfile:
+            path: /var/log/emergency-response.log
+            line: "{{ ansible_date_time.iso8601 }} - FAILED to remove emergency blocks for {{ emergency_id }} on {{ inventory_hostname }}"

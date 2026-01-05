@@ -1,0 +1,60 @@
+---
+# CrowdSec Profiles Configuration
+name: default_ip_remediation
+debug: false
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Ip"
+decisions:
+  - type: ban
+    duration: {{ crowdsec_ban_duration }}
+on_success: break
+
+---
+name: default_range_remediation
+debug: false
+filters:
+  - Alert.Remediation == true && Alert.GetScope() == "Range"
+decisions:
+  - type: ban
+    duration: {{ crowdsec_ban_duration }}
+on_success: break
+
+---
+name: vpn_protection
+debug: false
+filters:
+  - Alert.Remediation == true && (Alert.GetScenario() contains "vpn" || Alert.GetScenario() contains "wireguard" || Alert.GetScenario() contains "openvpn")
+decisions:
+  - type: ban
+    duration: 24h
+{% if crowdsec_notifications.slack.enabled or crowdsec_notifications.email.enabled %}
+notifications:
+  - slack_default
+  - email_default
+{% endif %}
+on_success: break
+
+---
+name: ssh_protection
+debug: false
+filters:
+  - Alert.Remediation == true && Alert.GetScenario() contains "ssh"
+decisions:
+  - type: ban
+    duration: 12h
+{% if crowdsec_notifications.slack.enabled or crowdsec_notifications.email.enabled %}
+notifications:
+  - slack_default
+  - email_default
+{% endif %}
+on_success: break
+
+---
+name: web_protection
+debug: false
+filters:
+  - Alert.Remediation == true && (Alert.GetScenario() contains "http" || Alert.GetScenario() contains "nginx" || Alert.GetScenario() contains "apache")
+decisions:
+  - type: ban
+    duration: 6h
+on_success: break

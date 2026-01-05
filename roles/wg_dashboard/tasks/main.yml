@@ -1,0 +1,210 @@
+---
+# WireGuard Dashboard - Docker-based WireGuard management UI
+# Supports both WireGuard and AmneziaWG
+# All configurations stored in SQLite database
+# Reference: https://wgdashboard.dev/
+
+- name: Install Docker prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: true
+  tags: [wg_dashboard, docker]
+
+- name: Add Docker GPG key
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  tags: [wg_dashboard, docker]
+
+- name: Add Docker repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    state: present
+    filename: docker
+  tags: [wg_dashboard, docker]
+
+- name: Install Docker
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+  tags: [wg_dashboard, docker]
+
+- name: Start and enable Docker
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  tags: [wg_dashboard, docker]
+
+- name: Create WireGuard Dashboard directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ wg_dashboard_data_dir }}"
+    - "{{ wg_dashboard_conf_path }}"      # /etc/wireguard mount
+    - "{{ wg_dashboard_aconf_path }}"     # /etc/amnezia/amneziawg mount
+    - "{{ wg_dashboard_db_path }}"        # /data mount (SQLite database)
+  tags: [wg_dashboard, config]
+
+- name: Deploy Docker Compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ wg_dashboard_data_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart WireGuard Dashboard
+  tags: [wg_dashboard, config]
+
+- name: Deploy WireGuard interface configuration
+  ansible.builtin.template:
+    src: wg0.conf.j2
+    dest: "{{ wg_dashboard_conf_path }}/{{ wg_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  when: vpn_protocol == 'wireguard' or vpn_protocol is not defined
+  notify: Restart WireGuard Dashboard
+  tags: [wg_dashboard, config]
+
+- name: Deploy AmneziaWG interface configuration
+  ansible.builtin.template:
+    src: wg0-amnezia.conf.j2
+    dest: "{{ wg_dashboard_aconf_path }}/awg0.conf"
+    owner: root
+    group: root
+    mode: "0600"
+  when: vpn_protocol == 'amneziawg'
+  notify: Restart WireGuard Dashboard
+  tags: [wg_dashboard, config]
+
+- name: Pull WireGuard Dashboard image
+  community.docker.docker_image:
+    name: "{{ wg_dashboard_image }}"
+    source: pull
+    force_source: true
+  tags: [wg_dashboard, docker]
+
+- name: Start WireGuard Dashboard container
+  community.docker.docker_compose_v2:
+    project_src: "{{ wg_dashboard_data_dir }}"
+    state: present
+  tags: [wg_dashboard, docker]
+
+- name: Wait for WireGuard Dashboard to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ wg_dashboard_port }}"
+    method: GET
+    status_code: [200, 302]
+  register: result
+  until: result.status in [200, 302]
+  retries: 30
+  delay: 5
+  tags: [wg_dashboard, verify]
+
+- name: Configure firewall for WireGuard
+  community.general.ufw:
+    rule: allow
+    port: "{{ wg_listen_port | string }}"
+    proto: udp
+  tags: [wg_dashboard, firewall]
+
+- name: Configure firewall for AmneziaWG
+  community.general.ufw:
+    rule: allow
+    port: "{{ amneziawg_listen_port | string }}"
+    proto: udp
+  when: vpn_protocol == 'amneziawg'
+  tags: [wg_dashboard, firewall]
+
+- name: Configure firewall for Dashboard (internal only)
+  community.general.ufw:
+    rule: allow
+    port: "{{ wg_dashboard_port | string }}"
+    proto: tcp
+    from_ip: "{{ wg_dashboard_allowed_network }}"
+  when: wg_dashboard_firewall_restrict
+  tags: [wg_dashboard, firewall]
+
+# ============================================
+# Central Database Sync Service (Optional)
+# ============================================
+
+- name: Install Python requests for sync service
+  ansible.builtin.apt:
+    name: python3-requests
+    state: present
+  when: vpn_central_sync_enabled | default(false)
+  tags: [wg_dashboard, sync]
+
+- name: Deploy gateway sync script
+  ansible.builtin.copy:
+    src: gateway-sync.py
+    dest: "{{ wg_dashboard_data_dir }}/gateway-sync.py"
+    mode: "0755"
+  when: vpn_central_sync_enabled | default(false)
+  notify: Restart Gateway Sync
+  tags: [wg_dashboard, sync]
+
+- name: Deploy gateway sync service
+  ansible.builtin.template:
+    src: gateway-sync.service.j2
+    dest: /etc/systemd/system/gateway-sync.service
+    mode: "0644"
+  when: vpn_central_sync_enabled | default(false)
+  notify: Restart Gateway Sync
+  tags: [wg_dashboard, sync]
+
+- name: Enable and start gateway sync service
+  ansible.builtin.systemd:
+    name: gateway-sync
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: vpn_central_sync_enabled | default(false)
+  tags: [wg_dashboard, sync]
+
+- name: Display WireGuard Dashboard info
+  ansible.builtin.debug:
+    msg: |
+      =====================================================
+      WireGuard Dashboard Deployed!
+      =====================================================
+
+      Dashboard URL: http://{{ ansible_host }}:{{ wg_dashboard_port }}
+      Username: {{ wg_dashboard_admin_user }}
+      Protocol: {{ vpn_protocol | default('wireguard') }}
+
+      Database Location (SQLite):
+      - Host path: {{ wg_dashboard_db_path }}
+      - Container path: /data
+
+      Configuration Paths:
+      - WireGuard: {{ wg_dashboard_conf_path }}
+      - AmneziaWG: {{ wg_dashboard_aconf_path }}
+
+      All peer configs and settings are stored in the SQLite
+      database at {{ wg_dashboard_db_path }}/db.sqlite
+      {% if vpn_central_sync_enabled | default(false) %}
+
+      Central Database Sync: ENABLED
+      - API URL: {{ vpn_api_url }}
+      - Sync Interval: {{ vpn_sync_interval | default(60) }}s
+      {% endif %}
+      =====================================================
+  tags: [wg_dashboard, verify]

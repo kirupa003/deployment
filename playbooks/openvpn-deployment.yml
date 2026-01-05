@@ -1,0 +1,331 @@
+---
+# OpenVPN Deployment Playbook
+# OpenVPN server setup with certificate management
+# Requirements: 4.1, 1.2
+
+- name: Deploy OpenVPN with Certificate Management
+  hosts: openvpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ batch_size | default(5) }}"
+  
+  vars:
+    deployment_timestamp: "{{ ansible_date_time.epoch }}"
+    deployment_id: "ovpn-deploy-{{ deployment_timestamp }}"
+    
+  pre_tasks:
+    - name: Validate deployment prerequisites
+      block:
+        - name: Check system requirements
+          assert:
+            that:
+              - ansible_distribution in ['Ubuntu', 'Debian']
+              - ansible_distribution_major_version | int >= 18
+            fail_msg: "Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+            
+        - name: Verify required ports are available
+          wait_for:
+            port: "{{ item }}"
+            host: "{{ ansible_default_ipv4.address }}"
+            state: stopped
+            timeout: 5
+          loop:
+            - "{{ openvpn_port_udp }}"
+            - "{{ openvpn_port_tcp }}"
+          ignore_errors: yes
+          register: port_check
+          
+        - name: Check certificate authority prerequisites
+          stat:
+            path: /etc/openvpn/ca
+          register: ca_directory
+          
+        - name: Ensure PKI directory structure
+          file:
+            path: "{{ item }}"
+            state: directory
+            mode: '0700'
+            owner: root
+            group: root
+          loop:
+            - /etc/openvpn/ca
+            - /etc/openvpn/certs
+            - /etc/openvpn/keys
+            - /etc/openvpn/crl
+            
+    - name: Create deployment log entry
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting OpenVPN deployment {{ deployment_id }} on {{ inventory_hostname }}"
+        create: yes
+      delegate_to: localhost
+      run_once: true
+
+  roles:
+    - role: ssh_hardening
+      tags: ['security', 'ssh']
+      
+    - role: ufw
+      tags: ['security', 'firewall']
+      
+    - role: fail2ban
+      tags: ['security', 'intrusion-prevention']
+      
+    - role: crowdsec
+      tags: ['security', 'threat-intelligence']
+      
+    - role: openvpn
+      tags: ['vpn', 'openvpn']
+      
+    - role: node_exporter
+      tags: ['monitoring', 'metrics']
+      
+    - role: promtail
+      tags: ['monitoring', 'logs']
+      
+    - role: coredns
+      tags: ['dns', 'adblock']
+
+  post_tasks:
+    - name: Verify OpenVPN service status
+      systemd:
+        name: openvpn@server
+        state: started
+        enabled: yes
+      register: ovpn_service_status
+      
+    - name: Test OpenVPN configuration
+      command: openvpn --config /etc/openvpn/server.conf --test-crypto
+      register: config_test
+      changed_when: false
+      
+    - name: Verify certificate authority
+      stat:
+        path: /etc/openvpn/ca/ca.crt
+      register: ca_cert_check
+      
+    - name: Check server certificate validity
+      openssl_certificate_info:
+        path: /etc/openvpn/certs/server.crt
+      register: server_cert_info
+      
+    - name: Validate certificate chain
+      command: openssl verify -CAfile /etc/openvpn/ca/ca.crt /etc/openvpn/certs/server.crt
+      register: cert_chain_validation
+      changed_when: false
+      
+    - name: Test UDP connectivity
+      wait_for:
+        port: "{{ openvpn_port_udp }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        state: started
+        timeout: 30
+      register: udp_connectivity
+      
+    - name: Test TCP connectivity
+      wait_for:
+        port: "{{ openvpn_port_tcp }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        state: started
+        timeout: 30
+      register: tcp_connectivity
+      
+    - name: Generate client configuration template
+      template:
+        src: client-template.ovpn.j2
+        dest: "/etc/openvpn/client-configs/client-template.ovpn"
+        mode: '0644'
+      vars:
+        server_address: "{{ ansible_default_ipv4.address }}"
+        
+    - name: Create certificate management scripts
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - src: add-openvpn-client.sh.j2
+          dest: /usr/local/bin/add-openvpn-client.sh
+        - src: revoke-openvpn-client.sh.j2
+          dest: /usr/local/bin/revoke-openvpn-client.sh
+        - src: list-openvpn-clients.sh.j2
+          dest: /usr/local/bin/list-openvpn-clients.sh
+          
+    - name: Generate deployment report
+      template:
+        src: deployment-report.j2
+        dest: "/tmp/openvpn-deployment-{{ deployment_id }}-{{ inventory_hostname }}.txt"
+      vars:
+        deployment_type: "OpenVPN with Certificate Management"
+        services_deployed:
+          - OpenVPN Server (UDP/TCP)
+          - Certificate Authority
+          - Node Exporter
+          - Promtail
+          - CoreDNS
+          - CrowdSec
+          - Fail2Ban
+          - UFW Firewall
+        service_status:
+          openvpn: "{{ ovpn_service_status.state }}"
+          ca_certificate: "{{ 'valid' if ca_cert_check.stat.exists else 'missing' }}"
+          server_certificate: "{{ 'valid' if server_cert_info.not_after else 'invalid' }}"
+          udp_port: "{{ 'open' if udp_connectivity is succeeded else 'closed' }}"
+          tcp_port: "{{ 'open' if tcp_connectivity is succeeded else 'closed' }}"
+          
+    - name: Update deployment log with completion
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed OpenVPN deployment {{ deployment_id }} on {{ inventory_hostname }} - Status: {{ 'SUCCESS' if ovpn_service_status.state == 'started' else 'FAILED' }}"
+      delegate_to: localhost
+
+  handlers:
+    - name: restart openvpn
+      systemd:
+        name: openvpn@server
+        state: restarted
+        
+    - name: reload openvpn
+      systemd:
+        name: openvpn@server
+        state: reloaded
+
+# Certificate management and validation
+- name: Certificate Management and Validation
+  hosts: openvpn_servers
+  become: yes
+  gather_facts: no
+  serial: 1
+  
+  tasks:
+    - name: Certificate lifecycle management
+      block:
+        - name: Check certificate expiration dates
+          openssl_certificate_info:
+            path: "{{ item }}"
+          register: cert_expiry_check
+          loop:
+            - /etc/openvpn/ca/ca.crt
+            - /etc/openvpn/certs/server.crt
+            
+        - name: Calculate days until expiration
+          set_fact:
+            days_until_expiry: "{{ ((cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days }}"
+          loop: "{{ cert_expiry_check.results }}"
+          loop_control:
+            loop_var: cert_info
+          register: expiry_calculations
+          
+        - name: Alert on certificates expiring soon
+          debug:
+            msg: "WARNING: Certificate {{ cert_info.item }} expires in {{ cert_info.ansible_facts.days_until_expiry }} days"
+          when: cert_info.ansible_facts.days_until_expiry | int < 30
+          loop: "{{ expiry_calculations.results }}"
+          loop_control:
+            loop_var: cert_info
+            
+        - name: Validate certificate revocation list
+          stat:
+            path: /etc/openvpn/crl/crl.pem
+          register: crl_check
+          
+        - name: Update CRL if missing
+          command: openssl ca -config /etc/openvpn/ca/openssl.cnf -gencrl -out /etc/openvpn/crl/crl.pem
+          when: not crl_check.stat.exists
+          
+      rescue:
+        - name: Log certificate management failure
+          lineinfile:
+            path: /var/log/ansible-deployments.log
+            line: "{{ ansible_date_time.iso8601 }} - Certificate management failure on {{ inventory_hostname }}"
+          delegate_to: localhost
+          
+        - name: Notify security team
+          mail:
+            to: "{{ security_email | default('security@example.com') }}"
+            subject: "OpenVPN Certificate Issue - {{ inventory_hostname }}"
+            body: |
+              Certificate management issue detected on {{ inventory_hostname }}.
+              
+              Please review certificate status and take appropriate action.
+              
+              Deployment ID: {{ deployment_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+          delegate_to: localhost
+          when: notify_on_failure | default(true)
+
+# Deployment validation and rollback procedures
+- name: Validate Deployment and Handle Failures
+  hosts: openvpn_servers
+  become: yes
+  gather_facts: no
+  serial: 1
+  
+  tasks:
+    - name: Comprehensive service validation
+      block:
+        - name: Verify OpenVPN process
+          command: pgrep -f "openvpn.*server.conf"
+          register: process_check
+          
+        - name: Check OpenVPN logs for errors
+          command: journalctl -u openvpn@server --since "5 minutes ago" --no-pager
+          register: service_logs
+          
+        - name: Validate network interface
+          command: ip addr show tun0
+          register: tun_interface_check
+          
+        - name: Test DNS resolution through VPN
+          command: dig @{{ ansible_default_ipv4.address }} google.com
+          register: dns_resolution_test
+          
+        - name: Check monitoring endpoints
+          uri:
+            url: "http://{{ ansible_default_ipv4.address }}:{{ node_exporter_port }}/metrics"
+            method: GET
+            status_code: 200
+          register: metrics_endpoint_check
+          
+      rescue:
+        - name: Log deployment failure
+          lineinfile:
+            path: /var/log/ansible-deployments.log
+            line: "{{ ansible_date_time.iso8601 }} - OpenVPN DEPLOYMENT FAILURE on {{ inventory_hostname }} - Initiating rollback"
+          delegate_to: localhost
+          
+        - name: Stop failed services
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - openvpn@server
+            - node_exporter
+          ignore_errors: yes
+          
+        - name: Backup failed configuration
+          archive:
+            path: /etc/openvpn
+            dest: "/tmp/openvpn-failed-config-{{ deployment_id }}.tar.gz"
+            
+        - name: Notify operations team
+          mail:
+            to: "{{ ops_email | default('ops@example.com') }}"
+            subject: "OpenVPN Deployment Failed - {{ inventory_hostname }}"
+            body: |
+              OpenVPN deployment failed on {{ inventory_hostname }}.
+              
+              Deployment ID: {{ deployment_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Configuration backup: /tmp/openvpn-failed-config-{{ deployment_id }}.tar.gz
+              
+              Please check the server and retry deployment.
+          delegate_to: localhost
+          when: notify_on_failure | default(true)
+          
+        - name: Fail the deployment
+          fail:
+            msg: "OpenVPN deployment validation failed on {{ inventory_hostname }}"

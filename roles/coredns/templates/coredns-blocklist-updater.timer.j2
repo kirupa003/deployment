@@ -1,0 +1,12 @@
+[Unit]
+Description=CoreDNS Blocklist Updater Timer
+Documentation=https://coredns.io
+Requires=coredns-blocklist-updater.service
+
+[Timer]
+OnCalendar={{ coredns_blocklist_update_cron.split()[1] }}:{{ coredns_blocklist_update_cron.split()[0] }}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,32 @@
+---
+- name: restart crowdsec
+  systemd:
+    name: crowdsec
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload crowdsec
+  systemd:
+    name: crowdsec
+    state: reloaded
+  become: true
+
+- name: restart crowdsec-firewall-bouncer
+  systemd:
+    name: crowdsec-firewall-bouncer
+    state: restarted
+    daemon_reload: true
+  become: true
+  when: crowdsec_firewall_integration | bool
+
+- name: update crowdsec hub
+  command: cscli hub update
+  become: true
+  become_user: "{{ crowdsec_user }}"
+
+- name: upgrade crowdsec scenarios
+  command: cscli scenarios upgrade --all
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  when: crowdsec_auto_update_scenarios | bool

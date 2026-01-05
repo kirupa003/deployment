@@ -1,0 +1,127 @@
+---
+# Health check for all VPN servers
+# Usage: ansible-playbook playbooks/maintenance/health-check.yml
+
+- name: VPN Infrastructure Health Check
+  hosts: vpn_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    health_check_results: []
+
+  tasks:
+    - name: Check VPN service status
+      ansible.builtin.systemd:
+        name: "{{ vpn_service_name }}"
+      register: vpn_service_status
+      vars:
+        vpn_service_name: >-
+          {%- if vpn_protocol == 'wireguard' -%}
+          wg-quick@{{ wireguard_interface | default('wg0') }}
+          {%- elif vpn_protocol == 'amneziawg' -%}
+          awg-quick@{{ amneziawg_interface | default('awg0') }}
+          {%- elif vpn_protocol == 'openvpn' -%}
+          openvpn-server@server-tcp
+          {%- endif -%}
+      tags: [vpn]
+
+    - name: Check CoreDNS status
+      ansible.builtin.systemd:
+        name: coredns
+      register: coredns_status
+      when: coredns_enabled | default(true)
+      tags: [dns]
+
+    - name: Test DNS resolution
+      ansible.builtin.command:
+        cmd: dig @127.0.0.1 google.com +short
+      register: dns_test
+      changed_when: false
+      failed_when: dns_test.rc != 0 or dns_test.stdout == ""
+      tags: [dns]
+
+    - name: Check node_exporter status
+      ansible.builtin.uri:
+        url: "http://localhost:{{ node_exporter_port | default(9100) }}/metrics"
+        method: GET
+        status_code: 200
+        timeout: 5
+      register: node_exporter_status
+      tags: [monitoring]
+
+    - name: Check wg_exporter status
+      ansible.builtin.uri:
+        url: "http://localhost:{{ wg_exporter_port | default(9586) }}/metrics"
+        method: GET
+        status_code: 200
+        timeout: 5
+      register: wg_exporter_status
+      when: vpn_protocol in ['wireguard', 'amneziawg']
+      tags: [monitoring]
+
+    - name: Check promtail status
+      ansible.builtin.systemd:
+        name: promtail
+      register: promtail_status
+      when: promtail_enabled | default(true)
+      tags: [logging]
+
+    - name: Check CrowdSec status
+      ansible.builtin.systemd:
+        name: crowdsec
+      register: crowdsec_status
+      when: crowdsec_agent_enabled | default(true)
+      tags: [security]
+
+    - name: Check Fail2Ban status
+      ansible.builtin.systemd:
+        name: fail2ban
+      register: fail2ban_status
+      when: fail2ban_enabled | default(true)
+      tags: [security]
+
+    - name: Check disk usage
+      ansible.builtin.command:
+        cmd: df -h /
+      register: disk_usage
+      changed_when: false
+      tags: [system]
+
+    - name: Check memory usage
+      ansible.builtin.command:
+        cmd: free -h
+      register: memory_usage
+      changed_when: false
+      tags: [system]
+
+    - name: Get active VPN connections
+      ansible.builtin.command:
+        cmd: "{{ 'wg show' if vpn_protocol == 'wireguard' else 'awg show' if vpn_protocol == 'amneziawg' else 'cat /var/log/openvpn/openvpn-status-tcp.log 2>/dev/null | grep -c CLIENT_LIST || echo 0' }}"
+      register: active_connections
+      changed_when: false
+      tags: [vpn]
+
+    - name: Generate health report
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Health Report: {{ inventory_hostname }}
+          Region: {{ vpn_region | default('unknown') }}
+          Protocol: {{ vpn_protocol }}
+          ========================================
+          VPN Service: {{ 'OK' if vpn_service_status.status.ActiveState == 'active' else 'FAILED' }}
+          DNS Service: {{ 'OK' if coredns_status.status.ActiveState == 'active' else 'FAILED' }}
+          DNS Test: {{ 'OK' if dns_test.rc == 0 else 'FAILED' }}
+          Node Exporter: {{ 'OK' if node_exporter_status.status == 200 else 'FAILED' }}
+          Promtail: {{ 'OK' if promtail_status.status.ActiveState == 'active' else 'FAILED' }}
+          CrowdSec: {{ 'OK' if crowdsec_status.status.ActiveState == 'active' else 'FAILED' }}
+          Fail2Ban: {{ 'OK' if fail2ban_status.status.ActiveState == 'active' else 'FAILED' }}
+          ----------------------------------------
+          Disk Usage:
+          {{ disk_usage.stdout }}
+          ----------------------------------------
+          Memory:
+          {{ memory_usage.stdout }}
+          ========================================
+      tags: [report]

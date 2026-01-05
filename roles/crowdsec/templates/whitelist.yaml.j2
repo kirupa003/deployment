@@ -1,0 +1,27 @@
+---
+# CrowdSec Whitelist Configuration
+name: crowdsecurity/whitelists
+description: "Whitelist for trusted IPs and networks"
+whitelist:
+  reason: "Trusted networks and management IPs"
+  ip:
+    # Local networks
+    - "127.0.0.1"
+    - "::1"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    
+    # Management networks (customize as needed)
+    - "{{ ansible_default_ipv4.address }}"
+    
+    # Add your management IPs here
+    # - "203.0.113.0/24"  # Example management network
+    
+  cidr:
+    # IPv6 local networks
+    - "fe80::/10"
+    - "fc00::/7"
+    
+    # Add trusted IPv6 networks here
+    # - "2001:db8::/32"  # Example trusted network

@@ -1,0 +1,57 @@
+---
+# AmneziaWG Configuration Validation
+
+- name: Validate required variables
+  assert:
+    that:
+      - amneziawg_interface is defined
+      - amneziawg_port is defined
+      - amneziawg_network is defined
+      - amneziawg_server_ip is defined
+    fail_msg: "Required AmneziaWG variables are not defined"
+
+- name: Validate network configuration
+  assert:
+    that:
+      - amneziawg_network | ansible.utils.ipaddr('network')
+      - amneziawg_server_ip | ansible.utils.ipaddr(amneziawg_network)
+    fail_msg: "Invalid network configuration"
+
+- name: Validate port range
+  assert:
+    that:
+      - amneziawg_port | int >= 1024
+      - amneziawg_port | int <= 65535
+    fail_msg: "AmneziaWG port must be between 1024 and 65535"
+
+- name: Check if running as root or with sudo
+  assert:
+    that:
+      - ansible_user_uid == 0 or ansible_become
+    fail_msg: "AmneziaWG installation requires root privileges"
+
+- name: Validate obfuscation parameters
+  assert:
+    that:
+      - amneziawg_junk_packet_count | int >= 0
+      - amneziawg_junk_packet_count | int <= 10
+      - amneziawg_junk_packet_min_size | int >= 0
+      - amneziawg_junk_packet_max_size | int <= 1500
+      - amneziawg_junk_packet_min_size | int <= amneziawg_junk_packet_max_size | int
+    fail_msg: "Invalid obfuscation parameters"
+
+- name: Check kernel version compatibility
+  command: uname -r
+  register: kernel_version
+  changed_when: false
+
+- name: Validate kernel headers availability
+  stat:
+    path: "/lib/modules/{{ kernel_version.stdout }}/build"
+  register: kernel_headers_check
+
+- name: Ensure kernel headers are available
+  assert:
+    that:
+      - kernel_headers_check.stat.exists
+    fail_msg: "Kernel headers not found. Install linux-headers-{{ kernel_version.stdout }}"

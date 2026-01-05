@@ -1,0 +1,57 @@
+---
+# OpenVPN Exporter Installation
+
+- name: Create openvpn_exporter user
+  user:
+    name: openvpn_exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Download openvpn_exporter
+  get_url:
+    url: "https://github.com/kumina/openvpn_exporter/releases/download/v{{ openvpn_exporter_version }}/openvpn_exporter-{{ openvpn_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/openvpn_exporter.tar.gz"
+    mode: "0644"
+
+- name: Extract openvpn_exporter
+  unarchive:
+    src: "/tmp/openvpn_exporter.tar.gz"
+    dest: "/usr/local/bin/"
+    remote_src: true
+    extra_opts:
+      - --strip-components=1
+    creates: "/usr/local/bin/openvpn_exporter"
+
+- name: Set permissions on openvpn_exporter
+  file:
+    path: /usr/local/bin/openvpn_exporter
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy openvpn_exporter systemd service
+  template:
+    src: openvpn_exporter.service.j2
+    dest: /etc/systemd/system/openvpn_exporter.service
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart openvpn_exporter
+
+- name: Enable and start openvpn_exporter
+  systemd:
+    name: openvpn_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Verify openvpn_exporter is running
+  uri:
+    url: "http://localhost:{{ openvpn_exporter_port }}/metrics"
+    method: GET
+    status_code: 200
+  register: exporter_check
+  retries: 3
+  delay: 5
+  until: exporter_check.status == 200

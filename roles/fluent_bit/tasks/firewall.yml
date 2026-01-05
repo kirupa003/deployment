@@ -1,0 +1,22 @@
+---
+- name: Allow fluent-bit port through UFW
+  ufw:
+    rule: allow
+    port: "{{ fluent_bit_port }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Fluent Bit HTTP API"
+  loop: "{{ fluent_bit_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Allow fluent-bit port through firewalld
+  firewalld:
+    port: "{{ fluent_bit_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+    source: "{{ item }}"
+  loop: "{{ fluent_bit_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "RedHat"

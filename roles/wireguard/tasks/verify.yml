@@ -1,0 +1,57 @@
+---
+# WireGuard Installation Verification
+
+- name: Check WireGuard service status
+  systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+  register: wireguard_service_status
+
+- name: Verify WireGuard interface is up
+  command: wg show {{ wireguard_interface }}
+  register: wg_interface_status
+  changed_when: false
+  failed_when: wg_interface_status.rc != 0
+
+- name: Check WireGuard interface IP configuration
+  command: ip addr show {{ wireguard_interface }}
+  register: wg_ip_status
+  changed_when: false
+  failed_when: wg_ip_status.rc != 0
+
+- name: Verify firewall rules
+  command: ufw status
+  register: ufw_status
+  changed_when: false
+  when: wireguard_firewall_enabled
+
+- name: Check dashboard availability
+  uri:
+    url: "http://localhost:{{ wg_dashboard_port }}"
+    method: GET
+    status_code: 200
+  register: dashboard_status
+  when: wg_dashboard_enabled
+  ignore_errors: true
+
+- name: Display WireGuard status
+  debug:
+    msg: |
+      WireGuard Status:
+      - Service: {{ wireguard_service_status.status.ActiveState }}
+      - Interface: {{ wireguard_interface }} is {{ 'UP' if wg_interface_status.rc == 0 else 'DOWN' }}
+      - Server IP: {{ wireguard_server_ip }}
+      - Listen Port: {{ wireguard_port }}
+      - Dashboard: {{ 'Available' if (wg_dashboard_enabled and dashboard_status.status == 200) else 'Not Available' }}
+
+- name: Display server public key
+  debug:
+    msg: "Server Public Key: {{ wireguard_server_public_key }}"
+
+- name: Create verification report
+  template:
+    src: verification-report.txt.j2
+    dest: /tmp/wireguard-verification-report.txt
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

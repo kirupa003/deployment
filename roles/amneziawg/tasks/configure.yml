@@ -1,0 +1,79 @@
+---
+# AmneziaWG Server Configuration
+
+- name: Generate AmneziaWG server configuration
+  template:
+    src: awg0.conf.j2
+    dest: "{{ _amneziawg_config_path }}"
+    owner: root
+    group: root
+    mode: '0600'
+    backup: true
+  become: true
+  notify: restart amneziawg
+
+- name: Create AmneziaWG interface management script
+  template:
+    src: awg-interface.sh.j2
+    dest: /usr/local/bin/awg-interface.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create AmneziaWG client management script
+  template:
+    src: awg-client-manager.sh.j2
+    dest: /usr/local/bin/awg-client-manager.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create AmneziaWG status script
+  template:
+    src: awg-status.sh.j2
+    dest: /usr/local/bin/awg-status.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create client configuration template directory
+  file:
+    path: "{{ client_config_dir }}/templates"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create client configuration template
+  template:
+    src: client.conf.j2
+    dest: "{{ client_config_dir }}/templates/client.conf.j2"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Create AmneziaWG logrotate configuration
+  copy:
+    content: |
+      {{ amneziawg_log_dir }}/*.log {
+          daily
+          missingok
+          rotate 30
+          compress
+          delaycompress
+          notifempty
+          create 0644 root root
+          postrotate
+              systemctl reload awg-quick@{{ amneziawg_interface }} > /dev/null 2>&1 || true
+          endscript
+      }
+    dest: /etc/logrotate.d/amneziawg
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

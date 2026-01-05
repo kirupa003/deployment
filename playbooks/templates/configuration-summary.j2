@@ -1,0 +1,50 @@
+# Configuration Generation Summary
+
+**Generated:** {{ generation_timestamp }}  
+**Total Configurations:** {{ total_configs }}
+
+## Generated Files
+
+{% for file in config_files %}
+### {{ file.path | basename }}
+- **Path:** `{{ file.path }}`
+- **Size:** {{ file.size }} bytes
+- **Modified:** {{ file.mtime | to_datetime | strftime('%Y-%m-%d %H:%M:%S') }}
+
+{% endfor %}
+
+## Validation Status
+
+All {{ total_configs }} configuration files have been validated for YAML syntax.
+
+## Next Steps
+
+1. **Review Configurations:** Examine generated files for accuracy
+2. **Run Validation:** Execute `scripts/validate-configuration.py` for comprehensive validation
+3. **Create Backup:** Run `scripts/backup-configuration.sh backup` to create versioned backup
+4. **Deploy Changes:** Use generated configurations in your deployment playbooks
+
+## Configuration Structure
+
+```
+generated-configs/
+├── environment-production.yml    # Environment-wide settings
+├── servers/                      # Server-specific configurations
+│   ├── server1.example.com.yml
+│   ├── server2.example.com.yml
+│   └── ...
+└── configuration-summary.md      # This summary file
+```
+
+## Validation Commands
+
+```bash
+# Validate all configurations
+./scripts/validate-configuration.py --path generated-configs/
+
+# Create configuration backup
+./scripts/backup-configuration.sh backup
+
+# List available backups
+./scripts/backup-configuration.sh list
+```

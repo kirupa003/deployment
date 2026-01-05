@@ -1,0 +1,41 @@
+---
+- name: Check node_exporter service status
+  systemd:
+    name: node_exporter
+  register: node_exporter_service_status
+  become: true
+
+- name: Verify node_exporter is running
+  assert:
+    that:
+      - node_exporter_service_status.status.ActiveState == "active"
+      - node_exporter_service_status.status.SubState == "running"
+    fail_msg: "Node Exporter service is not running properly"
+    success_msg: "Node Exporter service is running correctly"
+
+- name: Test node_exporter metrics endpoint
+  uri:
+    url: "http://{{ node_exporter_listen_address }}:{{ node_exporter_port }}/metrics"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: node_exporter_metrics_test
+  retries: 3
+  delay: 5
+
+- name: Verify metrics are being collected
+  assert:
+    that:
+      - "'node_cpu_seconds_total' in node_exporter_metrics_test.content"
+      - "'node_memory_MemTotal_bytes' in node_exporter_metrics_test.content"
+      - "'node_filesystem_size_bytes' in node_exporter_metrics_test.content"
+    fail_msg: "Node Exporter metrics are not available or incomplete"
+    success_msg: "Node Exporter is collecting metrics correctly"
+
+- name: Display node_exporter status
+  debug:
+    msg:
+      - "Node Exporter Status: {{ node_exporter_service_status.status.ActiveState }}"
+      - "Node Exporter Version: {{ node_exporter_version }}"
+      - "Metrics Endpoint: http://{{ ansible_default_ipv4.address }}:{{ node_exporter_port }}/metrics"
+      - "Enabled Collectors: {{ node_exporter_enabled_collectors | join(', ') }}"

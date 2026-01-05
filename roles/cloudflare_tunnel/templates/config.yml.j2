@@ -1,0 +1,31 @@
+# Cloudflare Tunnel Configuration
+# Managed by Ansible - Do not edit manually
+
+tunnel: {{ cloudflare_tunnel_name }}
+credentials-file: {{ cloudflared_config_dir }}/credentials.json
+
+# Logging
+loglevel: {{ cloudflared_log_level }}
+
+{% if cloudflared_metrics_enabled %}
+# Metrics
+metrics: 127.0.0.1:{{ cloudflared_metrics_port }}
+{% endif %}
+
+# Ingress rules - Define which services to expose
+ingress:
+{% for rule in cloudflare_tunnel_ingress %}
+{% if rule.hostname is defined %}
+  - hostname: {{ rule.hostname }}
+    service: {{ rule.service }}
+{% if rule.originRequest is defined %}
+    originRequest:
+{% for key, value in rule.originRequest.items() %}
+      {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+{% else %}
+  # Catch-all rule (required)
+  - service: {{ rule.service }}
+{% endif %}
+{% endfor %}

@@ -1,0 +1,60 @@
+---
+- name: Configure UFW basic settings
+  block:
+    - name: Reset UFW to defaults if requested
+      ufw:
+        state: reset
+      become: true
+      when: ufw_reset
+
+    - name: Configure UFW logging
+      ufw:
+        logging: "{{ ufw_logging }}"
+      become: true
+
+    - name: Set default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      become: true
+      loop:
+        - { direction: "incoming", policy: "{{ ufw_default_input_policy }}" }
+        - { direction: "outgoing", policy: "{{ ufw_default_output_policy }}" }
+        - { direction: "routed", policy: "{{ ufw_default_routed_policy }}" }
+
+    - name: Configure UFW main configuration
+      template:
+        src: ufw.conf.j2
+        dest: /etc/ufw/ufw.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+      notify: reload ufw
+
+    - name: Configure UFW defaults
+      template:
+        src: default.j2
+        dest: /etc/default/ufw
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+      notify: reload ufw
+
+    - name: Configure UFW sysctl settings
+      template:
+        src: sysctl.conf.j2
+        dest: /etc/ufw/sysctl.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+      notify: reload ufw
+
+  tags:
+    - ufw
+    - configure

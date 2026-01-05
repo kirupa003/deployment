@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- {{ ansible_managed }} -->
+<clickhouse>
+    <!-- Listen on all interfaces for receiving logs from VPN servers -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <http_port>{{ clickhouse_http_port }}</http_port>
+    <tcp_port>{{ clickhouse_native_port }}</tcp_port>
+
+    <max_memory_usage>{{ clickhouse_max_memory_usage }}</max_memory_usage>
+
+    <path>{{ clickhouse_data_dir }}/</path>
+    <tmp_path>{{ clickhouse_data_dir }}/tmp/</tmp_path>
+
+    <log>{{ clickhouse_log_dir }}/clickhouse-server.log</log>
+    <errorlog>{{ clickhouse_log_dir }}/clickhouse-server.err.log</errorlog>
+
+    <!-- Compression for DNS analytics data -->
+    <compression>
+        <case>
+            <min_part_size>10000000000</min_part_size>
+            <min_part_size_ratio>0.01</min_part_size_ratio>
+            <method>lz4</method>
+        </case>
+    </compression>
+</clickhouse>

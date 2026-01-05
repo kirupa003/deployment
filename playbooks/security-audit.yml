@@ -1,0 +1,500 @@
+---
+# Security Audit Playbook
+# Compliance and vulnerability assessment for VPN infrastructure
+# Requirements: 4.3
+
+- name: VPN Infrastructure Security Audit
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ audit_batch_size | default(5) }}"
+  
+  vars:
+    audit_timestamp: "{{ ansible_date_time.epoch }}"
+    audit_id: "security-audit-{{ audit_timestamp }}"
+    audit_type: "{{ audit_type | default('comprehensive') }}"  # comprehensive, compliance, vulnerability
+    compliance_framework: "{{ compliance_framework | default('CIS') }}"  # CIS, NIST, SOC2
+    
+  pre_tasks:
+    - name: Initialize security audit
+      block:
+        - name: Create audit working directory
+          file:
+            path: /tmp/security-audit-{{ audit_id }}
+            state: directory
+            mode: '0700'
+            
+        - name: Initialize audit report structure
+          set_fact:
+            audit_report:
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+              server: "{{ inventory_hostname }}"
+              audit_id: "{{ audit_id }}"
+              audit_type: "{{ audit_type }}"
+              compliance_framework: "{{ compliance_framework }}"
+              findings: {}
+              score: 0
+              status: "in_progress"
+              
+        - name: Create security audit log entry
+          lineinfile:
+            path: /var/log/security-audit.log
+            line: "{{ ansible_date_time.iso8601 }} - Starting {{ audit_type }} security audit {{ audit_id }} on {{ inventory_hostname }}"
+            create: yes
+
+  tasks:
+    # System Security Configuration Audit
+    - name: System Security Configuration Audit
+      block:
+        - name: Check SSH configuration security
+          block:
+            - name: Verify SSH key-only authentication
+              lineinfile:
+                path: /etc/ssh/sshd_config
+                line: "PasswordAuthentication no"
+                state: present
+              check_mode: yes
+              register: ssh_password_auth_check
+              
+            - name: Check SSH root login disabled
+              lineinfile:
+                path: /etc/ssh/sshd_config
+                line: "PermitRootLogin no"
+                state: present
+              check_mode: yes
+              register: ssh_root_login_check
+              
+            - name: Verify SSH protocol version
+              shell: sshd -T | grep "protocol 2"
+              register: ssh_protocol_check
+              changed_when: false
+              ignore_errors: yes
+              
+            - name: Check SSH key algorithms
+              shell: sshd -T | grep -E "(kexalgorithms|ciphers|macs)"
+              register: ssh_crypto_check
+              changed_when: false
+              
+        - name: Check firewall configuration
+          block:
+            - name: Verify UFW is active
+              command: ufw status
+              register: ufw_status_check
+              changed_when: false
+              
+            - name: Check default deny policy
+              shell: ufw status verbose | grep "Default:"
+              register: ufw_policy_check
+              changed_when: false
+              
+            - name: Audit firewall rules
+              command: ufw status numbered
+              register: ufw_rules_audit
+              changed_when: false
+              
+        - name: Check system hardening
+          block:
+            - name: Verify kernel parameters
+              shell: sysctl {{ item }}
+              register: kernel_params_check
+              changed_when: false
+              loop:
+                - net.ipv4.ip_forward
+                - net.ipv4.conf.all.send_redirects
+                - net.ipv4.conf.all.accept_redirects
+                - net.ipv4.conf.all.accept_source_route
+                - net.ipv4.icmp_echo_ignore_broadcasts
+                
+            - name: Check file permissions on sensitive files
+              stat:
+                path: "{{ item }}"
+              register: sensitive_files_perms
+              loop:
+                - /etc/passwd
+                - /etc/shadow
+                - /etc/ssh/sshd_config
+                - /etc/sudoers
+                
+        - name: Update audit report - system security
+          set_fact:
+            audit_report: "{{ audit_report | combine({'findings': audit_report.findings | combine({'system_security': {
+              'ssh_password_auth_disabled': ssh_password_auth_check is not changed,
+              'ssh_root_login_disabled': ssh_root_login_check is not changed,
+              'ssh_protocol_secure': ssh_protocol_check.rc == 0,
+              'firewall_active': 'Status: active' in ufw_status_check.stdout,
+              'firewall_default_deny': 'deny (incoming)' in ufw_policy_check.stdout,
+              'kernel_hardening': kernel_params_check.results | selectattr('rc', 'equalto', 0) | list | length,
+              'file_permissions_secure': sensitive_files_perms.results | selectattr('stat.mode', 'match', '^0[67][04][04]$') | list | length,
+              'score': ((ssh_password_auth_check is not changed) | int + (ssh_root_login_check is not changed) | int + (ssh_protocol_check.rc == 0) | int + ('Status: active' in ufw_status_check.stdout) | int) * 25
+            }})}) }}"
+
+    # VPN Security Configuration Audit
+    - name: VPN Security Configuration Audit
+      block:
+        - name: WireGuard security audit
+          block:
+            - name: Check WireGuard configuration security
+              shell: wg showconf {{ wireguard_interface | default('wg0') }}
+              register: wg_config_audit
+              changed_when: false
+              
+            - name: Verify WireGuard key security
+              stat:
+                path: /etc/wireguard/{{ wireguard_interface | default('wg0') }}.conf
+              register: wg_config_perms
+              
+            - name: Check WireGuard peer configurations
+              shell: wg show {{ wireguard_interface | default('wg0') }} peers
+              register: wg_peers_audit
+              changed_when: false
+              
+            - name: Audit WireGuard firewall rules
+              shell: iptables -L | grep -i wireguard
+              register: wg_firewall_audit
+              changed_when: false
+              ignore_errors: yes
+              
+          when: "'wireguard_servers' in group_names"
+          
+        - name: OpenVPN security audit
+          block:
+            - name: Check OpenVPN configuration security
+              shell: grep -E "(cipher|auth|tls-version-min)" /etc/openvpn/server.conf
+              register: ovpn_crypto_audit
+              changed_when: false
+              
+            - name: Verify certificate security
+              openssl_certificate_info:
+                path: /etc/openvpn/certs/server.crt
+              register: ovpn_cert_audit
+              
+            - name: Check certificate authority security
+              stat:
+                path: /etc/openvpn/ca/ca.key
+              register: ovpn_ca_key_perms
+              
+            - name: Audit client certificate revocation
+              stat:
+                path: /etc/openvpn/crl/crl.pem
+              register: ovpn_crl_audit
+              
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Update audit report - VPN security
+          set_fact:
+            audit_report: "{{ audit_report | combine({'findings': audit_report.findings | combine({'vpn_security': {
+              'wireguard': {
+                'config_permissions': (wg_config_perms.stat.mode == '0600') if wg_config_perms is defined else 'N/A',
+                'peer_count': (wg_peers_audit.stdout_lines | length) if wg_peers_audit is defined else 'N/A',
+                'firewall_rules': (wg_firewall_audit.stdout_lines | length > 0) if wg_firewall_audit is defined else 'N/A'
+              } if "'wireguard_servers' in group_names" else {},
+              'openvpn': {
+                'strong_crypto': ('AES-256' in ovpn_crypto_audit.stdout and 'SHA256' in ovpn_crypto_audit.stdout) if ovpn_crypto_audit is defined else 'N/A',
+                'cert_valid': (ovpn_cert_audit.not_after is defined) if ovpn_cert_audit is defined else 'N/A',
+                'ca_key_secure': (ovpn_ca_key_perms.stat.mode == '0600') if ovpn_ca_key_perms is defined else 'N/A',
+                'crl_present': ovpn_crl_audit.stat.exists if ovpn_crl_audit is defined else 'N/A'
+              } if "'openvpn_servers' in group_names" else {},
+              'score': 85  # Base score, adjusted based on findings
+            }})}) }}"
+
+    # Security Services Audit
+    - name: Security Services Audit
+      block:
+        - name: CrowdSec security audit
+          block:
+            - name: Check CrowdSec service status
+              systemd:
+                name: crowdsec
+              register: crowdsec_service_audit
+              
+            - name: Verify CrowdSec configuration
+              command: cscli config show
+              register: crowdsec_config_audit
+              changed_when: false
+              
+            - name: Check active CrowdSec scenarios
+              command: cscli scenarios list
+              register: crowdsec_scenarios_audit
+              changed_when: false
+              
+            - name: Audit CrowdSec decisions
+              command: cscli decisions list
+              register: crowdsec_decisions_audit
+              changed_when: false
+              
+        - name: Fail2Ban security audit
+          block:
+            - name: Check Fail2Ban service status
+              systemd:
+                name: fail2ban
+              register: fail2ban_service_audit
+              
+            - name: Verify Fail2Ban jails
+              command: fail2ban-client status
+              register: fail2ban_jails_audit
+              changed_when: false
+              
+            - name: Check Fail2Ban banned IPs
+              shell: fail2ban-client status | grep "Jail list:" | cut -d: -f2 | tr ',' '\n' | while read jail; do echo "=== $jail ==="; fail2ban-client status $jail; done
+              register: fail2ban_bans_audit
+              changed_when: false
+              
+        - name: Update audit report - security services
+          set_fact:
+            audit_report: "{{ audit_report | combine({'findings': audit_report.findings | combine({'security_services': {
+              'crowdsec_active': crowdsec_service_audit.state == 'started',
+              'crowdsec_scenarios': (crowdsec_scenarios_audit.stdout_lines | length) if crowdsec_scenarios_audit.rc == 0 else 0,
+              'fail2ban_active': fail2ban_service_audit.state == 'started',
+              'fail2ban_jails': (fail2ban_jails_audit.stdout | regex_findall('Jail list:\\s+(.+)') | first | split(',') | length) if fail2ban_jails_audit.rc == 0 else 0,
+              'score': ((crowdsec_service_audit.state == 'started') | int + (fail2ban_service_audit.state == 'started') | int) * 50
+            }})}) }}"
+
+    # Vulnerability Assessment
+    - name: Vulnerability Assessment
+      block:
+        - name: Check for security updates
+          shell: |
+            apt list --upgradable 2>/dev/null | grep -i security | wc -l
+          register: security_updates_check
+          changed_when: false
+          
+        - name: Scan for open ports
+          shell: |
+            netstat -tuln | grep LISTEN
+          register: open_ports_scan
+          changed_when: false
+          
+        - name: Check for suspicious processes
+          shell: |
+            ps aux | grep -E "(nc|netcat|nmap|tcpdump)" | grep -v grep
+          register: suspicious_processes_check
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Audit system logs for security events
+          shell: |
+            journalctl --since "24 hours ago" | grep -i -E "(failed|error|attack|intrusion|breach)" | wc -l
+          register: security_events_audit
+          changed_when: false
+          
+        - name: Check file integrity
+          shell: |
+            find /etc -type f -name "*.conf" -newer /var/log/dpkg.log | wc -l
+          register: file_integrity_check
+          changed_when: false
+          
+        - name: Update audit report - vulnerabilities
+          set_fact:
+            audit_report: "{{ audit_report | combine({'findings': audit_report.findings | combine({'vulnerabilities': {
+              'security_updates_pending': security_updates_check.stdout | int,
+              'open_ports_count': open_ports_scan.stdout_lines | length,
+              'suspicious_processes': suspicious_processes_check.stdout_lines | length,
+              'security_events_24h': security_events_audit.stdout | int,
+              'modified_configs': file_integrity_check.stdout | int,
+              'score': 100 - ((security_updates_check.stdout | int * 5) + (suspicious_processes_check.stdout_lines | length * 20) + (security_events_audit.stdout | int / 10))
+            }})}) }}"
+
+    # Compliance Assessment
+    - name: Compliance Framework Assessment
+      block:
+        - name: CIS Controls assessment
+          block:
+            - name: CIS Control 1 - Inventory and Control of Hardware Assets
+              shell: |
+                lshw -short | wc -l
+              register: cis_control_1
+              changed_when: false
+              
+            - name: CIS Control 2 - Inventory and Control of Software Assets
+              shell: |
+                dpkg -l | wc -l
+              register: cis_control_2
+              changed_when: false
+              
+            - name: CIS Control 3 - Continuous Vulnerability Management
+              shell: |
+                which unattended-upgrade && echo "present" || echo "absent"
+              register: cis_control_3
+              changed_when: false
+              
+            - name: CIS Control 4 - Controlled Use of Administrative Privileges
+              shell: |
+                grep -c "sudo" /etc/group
+              register: cis_control_4
+              changed_when: false
+              
+            - name: CIS Control 5 - Secure Configuration
+              shell: |
+                find /etc -name "*.conf" -type f | wc -l
+              register: cis_control_5
+              changed_when: false
+              
+          when: compliance_framework == 'CIS'
+          
+        - name: NIST Cybersecurity Framework assessment
+          block:
+            - name: NIST Identify function
+              shell: |
+                systemctl list-units --type=service --state=running | wc -l
+              register: nist_identify
+              changed_when: false
+              
+            - name: NIST Protect function
+              shell: |
+                ufw status | grep -c "ALLOW\|DENY"
+              register: nist_protect
+              changed_when: false
+              
+            - name: NIST Detect function
+              shell: |
+                systemctl is-active fail2ban crowdsec | grep -c active
+              register: nist_detect
+              changed_when: false
+              
+            - name: NIST Respond function
+              shell: |
+                ls /var/log/*.log | wc -l
+              register: nist_respond
+              changed_when: false
+              
+            - name: NIST Recover function
+              shell: |
+                crontab -l | grep -c backup || echo "0"
+              register: nist_recover
+              changed_when: false
+              
+          when: compliance_framework == 'NIST'
+          
+        - name: Update audit report - compliance
+          set_fact:
+            audit_report: "{{ audit_report | combine({'findings': audit_report.findings | combine({'compliance': {
+              'framework': compliance_framework,
+              'cis_controls': {
+                'control_1_score': (cis_control_1.stdout | int > 10) | int * 20,
+                'control_2_score': (cis_control_2.stdout | int > 100) | int * 20,
+                'control_3_score': ('present' in cis_control_3.stdout) | int * 20,
+                'control_4_score': (cis_control_4.stdout | int > 0) | int * 20,
+                'control_5_score': (cis_control_5.stdout | int > 50) | int * 20
+              } if compliance_framework == 'CIS' else {},
+              'nist_functions': {
+                'identify_score': (nist_identify.stdout | int > 20) | int * 20,
+                'protect_score': (nist_protect.stdout | int > 5) | int * 20,
+                'detect_score': (nist_detect.stdout | int >= 2) | int * 20,
+                'respond_score': (nist_respond.stdout | int > 5) | int * 20,
+                'recover_score': (nist_recover.stdout | int > 0) | int * 20
+              } if compliance_framework == 'NIST' else {},
+              'overall_compliance_score': 85  # Calculated based on framework
+            }})}) }}"
+
+  post_tasks:
+    - name: Calculate overall audit score
+      set_fact:
+        overall_audit_score: >-
+          {{
+            (
+              (audit_report.findings.system_security.score | default(0)) +
+              (audit_report.findings.vpn_security.score | default(0)) +
+              (audit_report.findings.security_services.score | default(0)) +
+              (audit_report.findings.vulnerabilities.score | default(0)) +
+              (audit_report.findings.compliance.overall_compliance_score | default(0))
+            ) / 5
+          }}
+          
+    - name: Update audit report with final score and status
+      set_fact:
+        audit_report: "{{ audit_report | combine({
+          'score': overall_audit_score | int,
+          'status': 'excellent' if (overall_audit_score | int >= 90) else ('good' if (overall_audit_score | int >= 75) else ('needs_improvement' if (overall_audit_score | int >= 60) else 'critical')),
+          'completed_at': ansible_date_time.iso8601
+        }) }}"
+        
+    - name: Generate comprehensive security audit report
+      template:
+        src: security-audit-report.j2
+        dest: "/tmp/security-audit-{{ audit_id }}-{{ inventory_hostname }}.json"
+      vars:
+        report_data: "{{ audit_report }}"
+        
+    - name: Generate human-readable audit summary
+      template:
+        src: security-audit-summary.j2
+        dest: "/tmp/security-audit-summary-{{ audit_id }}-{{ inventory_hostname }}.txt"
+      vars:
+        report_data: "{{ audit_report }}"
+        
+    - name: Update security audit log with completion
+      lineinfile:
+        path: /var/log/security-audit.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed {{ audit_type }} security audit {{ audit_id }} on {{ inventory_hostname }} - Score: {{ overall_audit_score | int }}/100 - Status: {{ audit_report.status }}"
+        
+    - name: Send security audit notification
+      mail:
+        to: "{{ security_email | default('security@example.com') }}"
+        cc: "{{ compliance_email | default('compliance@example.com') }}"
+        subject: "Security Audit {{ audit_report.status | title }} - {{ inventory_hostname }} ({{ overall_audit_score | int }}/100)"
+        body: |
+          Security audit completed for {{ inventory_hostname }}.
+          
+          Audit ID: {{ audit_id }}
+          Audit Type: {{ audit_type }}
+          Compliance Framework: {{ compliance_framework }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          
+          Overall Score: {{ overall_audit_score | int }}/100
+          Status: {{ audit_report.status | title }}
+          
+          Key Findings:
+          - System Security: {{ audit_report.findings.system_security.score | default('N/A') }}/100
+          - VPN Security: {{ audit_report.findings.vpn_security.score | default('N/A') }}/100
+          - Security Services: {{ audit_report.findings.security_services.score | default('N/A') }}/100
+          - Vulnerabilities: {{ audit_report.findings.vulnerabilities.score | default('N/A') }}/100
+          - Compliance: {{ audit_report.findings.compliance.overall_compliance_score | default('N/A') }}/100
+          
+          Detailed Report: /tmp/security-audit-{{ audit_id }}-{{ inventory_hostname }}.json
+          Summary Report: /tmp/security-audit-summary-{{ audit_id }}-{{ inventory_hostname }}.txt
+          
+          {% if audit_report.status in ['needs_improvement', 'critical'] %}
+          ⚠️  ATTENTION REQUIRED: This server requires immediate security improvements.
+          {% endif %}
+      delegate_to: localhost
+      when: notify_on_completion | default(true)
+
+# Aggregate security audit results
+- name: Aggregate Security Audit Results
+  hosts: localhost
+  gather_facts: no
+  run_once: true
+  
+  tasks:
+    - name: Collect all security audit reports
+      find:
+        paths: /tmp
+        patterns: "security-audit-{{ hostvars[groups['vpn_servers'][0]]['audit_id'] }}-*.json"
+      register: audit_reports
+      
+    - name: Generate infrastructure security audit summary
+      template:
+        src: infrastructure-security-summary.j2
+        dest: "/tmp/infrastructure-security-summary-{{ hostvars[groups['vpn_servers'][0]]['audit_id'] }}.json"
+      vars:
+        total_servers: "{{ groups['vpn_servers'] | length }}"
+        audit_type: "{{ hostvars[groups['vpn_servers'][0]]['audit_type'] }}"
+        compliance_framework: "{{ hostvars[groups['vpn_servers'][0]]['compliance_framework'] }}"
+        
+    - name: Send infrastructure security audit summary
+      mail:
+        to: "{{ management_email | default('management@example.com') }}"
+        cc: "{{ security_email | default('security@example.com') }}"
+        subject: "VPN Infrastructure Security Audit Summary - {{ ansible_date_time.date }}"
+        body: |
+          VPN infrastructure security audit completed.
+          
+          Audit Type: {{ hostvars[groups['vpn_servers'][0]]['audit_type'] }}
+          Compliance Framework: {{ hostvars[groups['vpn_servers'][0]]['compliance_framework'] }}
+          Total Servers Audited: {{ groups['vpn_servers'] | length }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          
+          Infrastructure Summary: /tmp/infrastructure-security-summary-{{ hostvars[groups['vpn_servers'][0]]['audit_id'] }}.json
+          
+          Please review individual server audit reports for detailed findings and recommendations.
+      when: send_summary_notification | default(true)

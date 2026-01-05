@@ -1,0 +1,76 @@
+---
+# OpenVPN Client Management
+
+- name: Create client management scripts
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - src: add-client.sh.j2
+      dest: /usr/local/bin/ovpn-add-client
+    - src: remove-client.sh.j2
+      dest: /usr/local/bin/ovpn-remove-client
+    - src: list-clients.sh.j2
+      dest: /usr/local/bin/ovpn-list-clients
+    - src: revoke-client.sh.j2
+      dest: /usr/local/bin/ovpn-revoke-client
+
+- name: Create client configuration backup script
+  template:
+    src: backup-clients.sh.j2
+    dest: /usr/local/bin/ovpn-backup-clients
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup client configuration backup cron job
+  cron:
+    name: "OpenVPN client backup"
+    minute: "0"
+    hour: "3"
+    job: "/usr/local/bin/ovpn-backup-clients"
+    user: root
+  become: true
+
+- name: Create certificate renewal script
+  template:
+    src: renew-certificates.sh.j2
+    dest: /usr/local/bin/ovpn-renew-certificates
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup certificate renewal cron job
+  cron:
+    name: "OpenVPN certificate renewal check"
+    minute: "0"
+    hour: "1"
+    weekday: "0"
+    job: "/usr/local/bin/ovpn-renew-certificates"
+    user: root
+  become: true
+
+- name: Create CRL update script
+  template:
+    src: update-crl.sh.j2
+    dest: /usr/local/bin/ovpn-update-crl
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup CRL update cron job
+  cron:
+    name: "OpenVPN CRL update"
+    minute: "0"
+    hour: "*/6"
+    job: "/usr/local/bin/ovpn-update-crl"
+    user: root
+  become: true
+  when: openvpn_crl_enabled

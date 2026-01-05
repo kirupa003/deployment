@@ -1,0 +1,37 @@
+---
+- name: Include system setup tasks
+  include_tasks: system.yml
+  tags:
+    - node_exporter
+    - system
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags:
+    - node_exporter
+    - install
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags:
+    - node_exporter
+    - configure
+
+- name: Include firewall tasks
+  include_tasks: firewall.yml
+  when: node_exporter_firewall_enabled
+  tags:
+    - node_exporter
+    - firewall
+
+- name: Include service tasks
+  include_tasks: service.yml
+  tags:
+    - node_exporter
+    - service
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - node_exporter
+    - validate

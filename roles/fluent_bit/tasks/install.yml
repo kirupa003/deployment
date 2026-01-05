@@ -1,0 +1,71 @@
+---
+- name: Add Fluent Bit GPG key
+  apt_key:
+    url: "https://packages.fluentbit.io/fluentbit.key"
+    state: present
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Add Fluent Bit repository
+  apt_repository:
+    repo: "deb https://packages.fluentbit.io/ubuntu/{{ ansible_distribution_release }} {{ ansible_distribution_release }} main"
+    state: present
+    update_cache: true
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Install Fluent Bit package
+  package:
+    name: "fluent-bit={{ fluent_bit_version }}-1"
+    state: present
+  become: true
+  notify: restart fluent-bit
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Hold Fluent Bit package version
+  dpkg_selections:
+    name: fluent-bit
+    selection: hold
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+# Alternative installation for non-Debian systems
+- name: Download Fluent Bit binary (non-Debian)
+  get_url:
+    url: "https://github.com/fluent/fluent-bit/releases/download/v{{ fluent_bit_version }}/fluent-bit-{{ fluent_bit_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64.tar.gz"
+    mode: '0644'
+    timeout: 30
+  when: ansible_facts['os_family'] != "Debian"
+  become: true
+
+- name: Extract Fluent Bit binary (non-Debian)
+  unarchive:
+    src: "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64.tar.gz"
+    dest: "/tmp"
+    remote_src: true
+    creates: "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64"
+  when: ansible_facts['os_family'] != "Debian"
+  become: true
+
+- name: Install Fluent Bit binary (non-Debian)
+  copy:
+    src: "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64/bin/fluent-bit"
+    dest: "/usr/local/bin/fluent-bit"
+    owner: root
+    group: root
+    mode: '0755'
+    remote_src: true
+  when: ansible_facts['os_family'] != "Debian"
+  become: true
+  notify: restart fluent-bit
+
+- name: Clean up downloaded files (non-Debian)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64.tar.gz"
+    - "/tmp/fluent-bit-{{ fluent_bit_version }}-linux-amd64"
+  when: ansible_facts['os_family'] != "Debian"
+  become: true

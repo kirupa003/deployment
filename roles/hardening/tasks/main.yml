@@ -1,0 +1,117 @@
+---
+# Security hardening tasks
+
+- name: Configure SSH hardening
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0600"
+    validate: 'sshd -t -f %s'
+  notify: Restart sshd
+  tags: [hardening, ssh]
+
+- name: Disable root login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: Restart sshd
+  tags: [hardening, ssh]
+
+- name: Configure firewall (UFW)
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+  tags: [hardening, firewall]
+
+- name: Allow SSH through firewall
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  tags: [hardening, firewall]
+
+- name: Allow VPN ports through firewall
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+  loop: "{{ firewall_vpn_ports | default([]) }}"
+  tags: [hardening, firewall]
+
+- name: Allow monitoring ports through firewall (internal only)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    from_ip: "{{ monitoring_network }}"
+  loop:
+    - "{{ node_exporter_port | default('9100') }}"
+    - "{{ wg_exporter_port | default('9586') }}"
+    - "{{ promtail_port | default('9080') }}"
+  when: monitoring_network is defined
+  tags: [hardening, firewall]
+
+- name: Configure kernel hardening
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: 'kernel.randomize_va_space', value: '2' }
+    - { key: 'net.ipv4.conf.all.rp_filter', value: '1' }
+    - { key: 'net.ipv4.conf.default.rp_filter', value: '1' }
+    - { key: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }
+    - { key: 'net.ipv4.conf.all.accept_source_route', value: '0' }
+    - { key: 'net.ipv4.conf.default.accept_source_route', value: '0' }
+    - { key: 'net.ipv4.conf.all.send_redirects', value: '0' }
+    - { key: 'net.ipv4.conf.default.send_redirects', value: '0' }
+    - { key: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+    - { key: 'net.ipv4.conf.default.accept_redirects', value: '0' }
+    - { key: 'net.ipv4.conf.all.log_martians', value: '1' }
+    - { key: 'net.ipv4.tcp_syncookies', value: '1' }
+  tags: [hardening, sysctl]
+
+- name: Set file permissions on sensitive files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: '/etc/passwd', mode: '0644' }
+    - { path: '/etc/shadow', mode: '0640' }
+    - { path: '/etc/group', mode: '0644' }
+    - { path: '/etc/gshadow', mode: '0640' }
+  tags: [hardening, permissions]
+
+- name: Disable unnecessary services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ services_to_disable | default([]) }}"
+  failed_when: false
+  tags: [hardening, services]
+
+- name: Configure automatic security updates
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+  when: ansible_os_family == "Debian"
+  tags: [hardening, updates]
+
+- name: Enable automatic security updates
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == "Debian"
+  tags: [hardening, updates]

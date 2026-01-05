@@ -1,0 +1,58 @@
+---
+- name: Deploy CoreDNS with ad-blocking capabilities
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    # Override default settings if needed
+    coredns_adblock_enabled: true
+    coredns_query_logging: true
+    coredns_analytics_enabled: true
+    
+  pre_tasks:
+    - name: Update package cache
+      package:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+    
+    - name: Ensure system is up to date
+      package:
+        name: "*"
+        state: latest
+      when: ansible_os_family == "RedHat"
+  
+  roles:
+    - role: coredns
+      tags: [coredns, dns]
+  
+  post_tasks:
+    - name: Display CoreDNS service information
+      debug:
+        msg: |
+          CoreDNS has been deployed successfully!
+          
+          DNS Server: {{ ansible_default_ipv4.address }}:{{ coredns_listen_port }}
+          Health Check: http://{{ ansible_default_ipv4.address }}:{{ coredns_health_port }}/health
+          Metrics: http://{{ ansible_default_ipv4.address }}:{{ coredns_metrics_port }}/metrics
+          
+          To test DNS resolution:
+          dig @{{ ansible_default_ipv4.address }} google.com
+          
+          To test ad-blocking:
+          dig @{{ ansible_default_ipv4.address }} doubleclick.net
+          
+          Configuration files:
+          - Main config: {{ coredns_config_dir }}/Corefile
+          - Blocklist: {{ coredns_data_dir }}/blocklists/combined-blocklist.txt
+          - Logs: {{ coredns_log_dir }}/
+    
+    - name: Test DNS resolution
+      command: dig @{{ ansible_default_ipv4.address }} +short google.com
+      register: dns_test
+      changed_when: false
+      failed_when: false
+    
+    - name: Display DNS test result
+      debug:
+        msg: "DNS test result: {{ dns_test.stdout if dns_test.rc == 0 else 'Failed' }}"

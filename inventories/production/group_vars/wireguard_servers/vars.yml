@@ -1,0 +1,22 @@
+---
+# WireGuard servers configuration (using Dashboard)
+
+vpn_protocol: wireguard
+
+# WireGuard Dashboard settings
+wg_dashboard_enabled: true
+wg_interface: wg0
+wg_listen_port: 51820
+wg_server_address: "10.66.66.1/24"
+wg_mtu: 1420
+
+# Peer defaults
+wg_peer_dns: "{{ ansible_default_ipv4.address }}"
+wg_peer_allowed_ips: "0.0.0.0/0, ::/0"
+wg_persistent_keepalive: 25
+
+# Dashboard access restriction
+wg_dashboard_firewall_restrict: true
+wg_dashboard_allowed_network: "10.0.0.0/8"
+
+

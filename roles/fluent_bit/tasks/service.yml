@@ -1,0 +1,16 @@
+---
+- name: Enable and start fluent-bit service
+  systemd:
+    name: fluent-bit
+    enabled: "{{ fluent_bit_service_enabled }}"
+    state: "{{ fluent_bit_service_state }}"
+    daemon_reload: true
+  become: true
+
+- name: Wait for fluent-bit to be ready
+  wait_for:
+    port: "{{ fluent_bit_port }}"
+    host: "{{ fluent_bit_listen_address }}"
+    delay: 5
+    timeout: 30
+  when: fluent_bit_service_state == "started"

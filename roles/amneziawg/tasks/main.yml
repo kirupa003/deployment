@@ -1,0 +1,40 @@
+---
+# AmneziaWG Role Main Tasks
+
+- name: Include OS-specific variables
+  include_vars: "{{ ansible_os_family }}.yml"
+  failed_when: false
+
+- name: Validate AmneziaWG configuration
+  include_tasks: validate.yml
+
+- name: Install build dependencies
+  include_tasks: install.yml
+
+- name: Configure system parameters
+  include_tasks: system.yml
+
+- name: Build and install AmneziaWG kernel module
+  include_tasks: build_kernel.yml
+
+- name: Build and install AmneziaWG tools
+  include_tasks: build_tools.yml
+
+- name: Generate AmneziaWG keys
+  include_tasks: keys.yml
+
+- name: Configure AmneziaWG server
+  include_tasks: configure.yml
+
+- name: Setup firewall rules
+  include_tasks: firewall.yml
+  when: amneziawg_firewall_enabled
+
+- name: Setup client management
+  include_tasks: clients.yml
+
+- name: Start and enable AmneziaWG service
+  include_tasks: service.yml
+
+- name: Verify AmneziaWG installation
+  include_tasks: verify.yml

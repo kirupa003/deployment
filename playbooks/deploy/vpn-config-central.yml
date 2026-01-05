@@ -1,0 +1,92 @@
+---
+# Deploy Centralized VPN Configuration System
+# Includes: PostgreSQL database + REST API + Gateway sync
+#
+# Usage:
+#   # Deploy everything
+#   ansible-playbook playbooks/deploy/vpn-config-central.yml
+#
+#   # Deploy only database
+#   ansible-playbook playbooks/deploy/vpn-config-central.yml --tags database
+#
+#   # Deploy only API
+#   ansible-playbook playbooks/deploy/vpn-config-central.yml --tags api
+
+- name: Deploy VPN Configuration Database
+  hosts: vpn_config_db
+  become: true
+  gather_facts: true
+  tags: [database]
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+
+    - role: vpn_config_db
+      tags: [vpn_config_db, database]
+
+  post_tasks:
+    - name: Display database connection info
+      ansible.builtin.debug:
+        msg: |
+          VPN Config Database: {{ ansible_host }}:{{ vpn_db_port }}
+          Database: {{ vpn_db_name }}
+
+
+- name: Deploy VPN Configuration API
+  hosts: vpn_config_api
+  become: true
+  gather_facts: true
+  tags: [api]
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+
+    - role: vpn_config_api
+      tags: [vpn_config_api, api]
+
+  post_tasks:
+    - name: Display API endpoint
+      ansible.builtin.debug:
+        msg: |
+          VPN Config API: http://{{ ansible_host }}:{{ vpn_api_port }}
+          API Docs: http://{{ ansible_host }}:{{ vpn_api_port }}/docs
+
+
+- name: Enable Central Sync on VPN Gateways
+  hosts: wireguard_servers:amneziawg_servers
+  become: true
+  gather_facts: true
+  tags: [sync]
+
+  vars:
+    vpn_central_sync_enabled: true
+
+  tasks:
+    - name: Configure gateway sync
+      ansible.builtin.include_role:
+        name: wg_dashboard
+        tasks_from: main
+      vars:
+        vpn_central_sync_enabled: true
+      tags: [wg_dashboard, sync]
+
+  post_tasks:
+    - name: Verify sync service status
+      ansible.builtin.systemd:
+        name: gateway-sync
+      register: sync_status
+
+    - name: Display sync status
+      ansible.builtin.debug:
+        msg: |
+          Gateway: {{ inventory_hostname }}
+          Sync Service: {{ sync_status.status.ActiveState }}
+          Central API: {{ vpn_api_url }}

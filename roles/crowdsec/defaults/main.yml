@@ -1,0 +1,149 @@
+---
+# CrowdSec Configuration
+crowdsec_version: "1.6.0"
+crowdsec_user: "crowdsec"
+crowdsec_group: "crowdsec"
+crowdsec_config_dir: "/etc/crowdsec"
+crowdsec_data_dir: "/var/lib/crowdsec/data"
+crowdsec_log_dir: "/var/log/crowdsec"
+
+# LAPI Configuration
+crowdsec_lapi_enabled: true
+crowdsec_lapi_host: "0.0.0.0"
+crowdsec_lapi_port: 8080
+crowdsec_lapi_url: "http://{{ ansible_default_ipv4.address }}:{{ crowdsec_lapi_port }}"
+
+# Central API Configuration
+crowdsec_central_api_enabled: true
+crowdsec_central_api_url: "https://api.crowdsec.net"
+
+# Database Configuration
+crowdsec_db_type: "sqlite"
+crowdsec_db_path: "{{ crowdsec_data_dir }}/crowdsec.db"
+
+# Scenarios and Collections
+crowdsec_scenarios:
+  - crowdsecurity/ssh-bf
+  - crowdsecurity/ssh-slow-bf
+  - crowdsecurity/http-bf
+  - crowdsecurity/http-crawl-non_statics
+  - crowdsecurity/http-sensitive-files
+  - crowdsecurity/iptables-scan-multi_ports
+  - crowdsecurity/vpn-bf
+  - crowdsecurity/openvpn-bf
+  - crowdsecurity/wireguard-bf
+
+crowdsec_collections:
+  - crowdsecurity/linux
+  - crowdsecurity/sshd
+  - crowdsecurity/nginx
+  - crowdsecurity/apache2
+  - crowdsecurity/openvpn
+  - crowdsecurity/wireguard
+  - crowdsecurity/iptables
+
+# Parsers
+crowdsec_parsers:
+  - crowdsecurity/syslog-logs
+  - crowdsecurity/dateparse-enrich
+  - crowdsecurity/geoip-enrich
+  - crowdsecurity/whitelists
+
+# Postoverflows
+crowdsec_postoverflows:
+  - crowdsecurity/cdn-whitelist
+  - crowdsecurity/rdns
+
+# Bouncers
+crowdsec_bouncers:
+  - name: "firewall-bouncer"
+    type: "cs-firewall-bouncer"
+    api_key: "{{ crowdsec_firewall_bouncer_key | default('') }}"
+  - name: "iptables-bouncer"
+    type: "cs-iptables-bouncer"
+    api_key: "{{ crowdsec_iptables_bouncer_key | default('') }}"
+
+# Firewall Integration
+crowdsec_firewall_integration: true
+crowdsec_iptables_chain: "CROWDSEC"
+crowdsec_ban_duration: "4h"
+
+# Log Sources
+crowdsec_log_sources:
+  - source: "file"
+    filenames:
+      - "/var/log/auth.log"
+      - "/var/log/syslog"
+      - "/var/log/kern.log"
+    labels:
+      type: "syslog"
+  - source: "file"
+    filenames:
+      - "/var/log/nginx/access.log"
+      - "/var/log/nginx/error.log"
+    labels:
+      type: "nginx"
+  - source: "file"
+    filenames:
+      - "/var/log/apache2/access.log"
+      - "/var/log/apache2/error.log"
+    labels:
+      type: "apache2"
+  - source: "file"
+    filenames:
+      - "/var/log/openvpn/*.log"
+    labels:
+      type: "openvpn"
+  - source: "file"
+    filenames:
+      - "/var/log/wireguard/*.log"
+    labels:
+      type: "wireguard"
+
+# Notification Configuration
+crowdsec_notifications:
+  slack:
+    enabled: false
+    webhook_url: ""
+    channel: "#security-alerts"
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    smtp_username: ""
+    smtp_password: ""
+    from_email: ""
+    to_emails: []
+
+# Metrics Configuration
+crowdsec_metrics_enabled: true
+crowdsec_prometheus_enabled: true
+crowdsec_prometheus_port: 6060
+
+# Security Configuration
+crowdsec_tls_enabled: false
+crowdsec_tls_cert_file: ""
+crowdsec_tls_key_file: ""
+
+# Hub Configuration
+crowdsec_hub_update_frequency: "24h"
+crowdsec_auto_update_scenarios: true
+
+# Machine Configuration
+crowdsec_machine_id: "{{ ansible_hostname }}-{{ ansible_default_ipv4.address | replace('.', '-') }}"
+
+# LAPI Credentials (will be generated if not provided)
+crowdsec_lapi_username: "{{ crowdsec_machine_id }}"
+crowdsec_lapi_password: "{{ crowdsec_lapi_generated_password | default('') }}"
+
+# Bouncer Keys (will be generated if not provided)
+crowdsec_firewall_bouncer_key: "{{ crowdsec_firewall_bouncer_generated_key | default('') }}"
+crowdsec_iptables_bouncer_key: "{{ crowdsec_iptables_bouncer_generated_key | default('') }}"
+
+# Service Configuration
+crowdsec_service_enabled: true
+crowdsec_service_state: "started"
+
+# Firewall Configuration
+crowdsec_ufw_integration: true
+crowdsec_iptables_integration: true

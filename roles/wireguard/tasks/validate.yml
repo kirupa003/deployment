@@ -1,0 +1,40 @@
+---
+# WireGuard Configuration Validation
+
+- name: Validate required variables
+  assert:
+    that:
+      - wireguard_interface is defined
+      - wireguard_port is defined
+      - wireguard_network is defined
+      - wireguard_server_ip is defined
+    fail_msg: "Required WireGuard variables are not defined"
+
+- name: Validate network configuration
+  assert:
+    that:
+      - wireguard_network | ansible.utils.ipaddr('network')
+      - wireguard_server_ip | ansible.utils.ipaddr(wireguard_network)
+    fail_msg: "Invalid network configuration"
+
+- name: Validate port range
+  assert:
+    that:
+      - wireguard_port | int >= 1024
+      - wireguard_port | int <= 65535
+    fail_msg: "WireGuard port must be between 1024 and 65535"
+
+- name: Check if running as root or with sudo
+  assert:
+    that:
+      - ansible_user_uid == 0 or ansible_become
+    fail_msg: "WireGuard installation requires root privileges"
+
+- name: Validate dashboard configuration
+  assert:
+    that:
+      - wg_dashboard_port | int >= 1024
+      - wg_dashboard_port | int <= 65535
+      - wg_dashboard_admin_user is defined
+    fail_msg: "Invalid dashboard configuration"
+  when: wg_dashboard_enabled

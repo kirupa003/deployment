@@ -1,0 +1,94 @@
+---
+# OpenVPN Role Default Variables
+
+# Package Installation
+openvpn_packages:
+  - openvpn
+  - easy-rsa
+  - iptables-persistent
+  - openssl
+
+# OpenVPN Server Configuration
+openvpn_enabled: true
+openvpn_port_udp: 1194
+openvpn_port_tcp: 443
+openvpn_protocol: udp  # udp, tcp, or both
+openvpn_server_network: 10.20.0.0
+openvpn_server_netmask: 255.255.255.0
+openvpn_server_ip: 10.20.0.1
+openvpn_max_clients: 1000
+
+# DNS Configuration
+openvpn_dns_servers:
+  - 1.1.1.1
+  - 8.8.8.8
+openvpn_push_dns: true
+openvpn_redirect_gateway: true
+
+# Certificate Authority Configuration
+openvpn_ca_dir: /etc/openvpn/easy-rsa
+openvpn_pki_dir: "{{ openvpn_ca_dir }}/pki"
+openvpn_ca_expire: 3650  # 10 years
+openvpn_cert_expire: 365  # 1 year
+openvpn_key_size: 2048
+openvpn_digest: sha256
+
+# Certificate Details
+openvpn_ca_country: US
+openvpn_ca_province: CA
+openvpn_ca_city: San Francisco
+openvpn_ca_org: VPN Infrastructure
+openvpn_ca_email: admin@vpn.local
+openvpn_ca_ou: IT Department
+
+# Server Certificate
+openvpn_server_name: server
+openvpn_dh_key_size: 2048
+
+# Client Configuration
+openvpn_client_config_dir: /etc/openvpn/clients
+openvpn_client_template_dir: /etc/openvpn/client-templates
+openvpn_ccd_dir: /etc/openvpn/ccd  # Client-specific configurations
+
+# Security Configuration
+openvpn_tls_auth: true
+openvpn_tls_crypt: false  # Use tls-auth by default, can enable tls-crypt
+openvpn_cipher: AES-256-GCM
+openvpn_auth: SHA256
+openvpn_tls_version_min: "1.2"
+
+# Network Configuration
+openvpn_dev: tun
+openvpn_topology: subnet
+openvpn_mtu: 1500
+openvpn_fragment: 1300
+openvpn_mssfix: true
+
+# Logging
+openvpn_log_dir: /var/log/openvpn
+openvpn_log_level: 3
+openvpn_status_log: "{{ openvpn_log_dir }}/status.log"
+openvpn_log_file: "{{ openvpn_log_dir }}/openvpn.log"
+
+# Service Configuration
+openvpn_service_enabled: true
+openvpn_service_state: started
+
+# Firewall Configuration
+openvpn_firewall_enabled: true
+openvpn_forward_interface: "{{ ansible_default_ipv4.interface }}"
+
+# Performance Tuning
+openvpn_sndbuf: 393216
+openvpn_rcvbuf: 393216
+openvpn_push_sndbuf: 393216
+openvpn_push_rcvbuf: 393216
+
+# Management Interface
+openvpn_management_enabled: true
+openvpn_management_ip: 127.0.0.1
+openvpn_management_port: 7505
+
+# Certificate Revocation List
+openvpn_crl_enabled: true
+openvpn_crl_verify: true

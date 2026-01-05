@@ -1,0 +1,9 @@
+---
+- name: Reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: Restart openvpn_exporter
+  systemd:
+    name: openvpn_exporter
+    state: restarted

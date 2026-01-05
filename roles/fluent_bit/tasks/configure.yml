@@ -1,0 +1,71 @@
+---
+- name: Generate Fluent Bit main configuration
+  template:
+    src: fluent-bit.conf.j2
+    dest: "{{ fluent_bit_config_dir }}/fluent-bit.conf"
+    owner: "{{ fluent_bit_user }}"
+    group: "{{ fluent_bit_group }}"
+    mode: '0640'
+  become: true
+  notify: restart fluent-bit
+
+- name: Generate Fluent Bit parsers configuration
+  template:
+    src: parsers.conf.j2
+    dest: "{{ fluent_bit_config_dir }}/parsers.conf"
+    owner: "{{ fluent_bit_user }}"
+    group: "{{ fluent_bit_group }}"
+    mode: '0640'
+  become: true
+  notify: restart fluent-bit
+
+- name: Generate Fluent Bit plugins configuration
+  template:
+    src: plugins.conf.j2
+    dest: "{{ fluent_bit_config_dir }}/plugins.conf"
+    owner: "{{ fluent_bit_user }}"
+    group: "{{ fluent_bit_group }}"
+    mode: '0640'
+  become: true
+  notify: restart fluent-bit
+
+- name: Create systemd service file
+  template:
+    src: fluent-bit.service.j2
+    dest: /etc/systemd/system/fluent-bit.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify:
+    - reload systemd
+    - restart fluent-bit
+  when: ansible_facts['os_family'] != "Debian"
+
+- name: Create Fluent Bit environment file
+  template:
+    src: fluent-bit.env.j2
+    dest: /etc/default/fluent-bit
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: restart fluent-bit
+
+- name: Create DNS log processing script
+  template:
+    src: dns_log_processor.sh.j2
+    dest: /usr/local/bin/fluent_bit_dns_processor.sh
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create log rotation configuration
+  template:
+    src: fluent-bit.logrotate.j2
+    dest: /etc/logrotate.d/fluent-bit
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

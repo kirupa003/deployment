@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# systemd-timesyncd configuration
+
+[Time]
+NTP={{ ntp_servers | join(' ') }}
+FallbackNTP=0.pool.ntp.org 1.pool.ntp.org
+RootDistanceMaxSec=5
+PollIntervalMinSec=32
+PollIntervalMaxSec=2048

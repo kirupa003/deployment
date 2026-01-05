@@ -1,0 +1,51 @@
+CoreDNS Validation Report
+========================
+Generated: {{ ansible_date_time.iso8601 }}
+Server: {{ inventory_hostname }}
+IP Address: {{ ansible_default_ipv4.address }}
+
+Configuration Validation:
+- Config file syntax: {{ 'Valid' if config_validation.rc == 0 else 'Invalid' }}
+- Config file path: {{ coredns_config_dir }}/Corefile
+
+Service Status:
+- CoreDNS service: {{ 'Running' if ansible_facts.services['coredns.service'].state == 'running' else 'Not running' }}
+- Process ID: {{ process_status.stdout_lines[0].split()[1] if process_status.stdout_lines else 'N/A' }}
+
+Network Tests:
+- DNS Resolution (UDP): {{ 'Working' if dns_test_good.rc == 0 else 'Failed' }}
+  - Test domain: google.com
+  - Response: {{ dns_test_good.stdout | default('No response') }}
+- DNS Resolution (TCP): {{ 'Working' if dns_tcp_test.rc == 0 else 'Failed' }}
+  - Test domain: cloudflare.com
+  - Response: {{ dns_tcp_test.stdout | default('No response') }}
+
+{% if coredns_adblock_enabled | bool %}
+Ad-blocking Status:
+- Ad-blocking enabled: Yes
+- Blocked test domain: doubleclick.net
+- Block test result: {{ 'Blocked' if dns_test_blocked.stdout == '' or '0.0.0.0' in dns_test_blocked.stdout else 'Not blocked' }}
+- Blocklist file: {{ coredns_data_dir }}/blocklists/combined-blocklist.txt
+- Blocklist exists: {{ 'Yes' if blocklist_file.stat.exists else 'No' }}
+- Total blocked domains: {{ blocked_domains_count.stdout | default('Unknown') }}
+{% else %}
+Ad-blocking Status:
+- Ad-blocking enabled: No
+{% endif %}
+
+Endpoints:
+- DNS Server: {{ ansible_default_ipv4.address }}:{{ coredns_listen_port }}
+- Health Check: http://{{ ansible_default_ipv4.address }}:{{ coredns_health_port }}/health
+- Metrics: http://{{ ansible_default_ipv4.address }}:{{ coredns_metrics_port }}/metrics
+
+Configuration:
+- Version: {{ coredns_version }}
+- User: {{ coredns_user }}
+- Config directory: {{ coredns_config_dir }}
+- Data directory: {{ coredns_data_dir }}
+- Log directory: {{ coredns_log_dir }}
+- Cache TTL: {{ coredns_cache_ttl }}s
+- Cache size: {{ coredns_cache_size }}
+- Upstream resolvers: {{ coredns_upstream_resolvers | join(', ') }}
+
+Validation completed at {{ ansible_date_time.iso8601 }}

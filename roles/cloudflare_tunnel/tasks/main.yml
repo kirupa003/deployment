@@ -1,0 +1,16 @@
+---
+# Cloudflare Tunnel Role - Main Tasks
+
+- name: Include installation tasks
+  include_tasks: install.yml
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+
+- name: Include DNS tasks
+  include_tasks: dns.yml
+  when: cloudflare_zone_id | length > 0
+
+- name: Include Access (Zero Trust) tasks
+  include_tasks: access.yml
+  when: cloudflare_access_enabled | bool

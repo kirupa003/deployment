@@ -1,0 +1,37 @@
+# {{ ansible_managed }}
+# AmneziaWG Server Configuration (WireGuard with Obfuscation)
+# Reference: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module
+
+[Interface]
+Address = {{ wg_server_address }}{% if wg_ipv6_enabled %}, {{ wg_server_address_v6 }}{% endif %}
+
+ListenPort = {{ amneziawg_listen_port }}
+PrivateKey = {{ wg_private_key }}
+{% if wg_mtu is defined %}
+MTU = {{ wg_mtu }}
+{% endif %}
+
+# AmneziaWG Obfuscation Parameters
+# These values make WireGuard traffic undetectable by DPI
+Jc = {{ amneziawg_jc }}      # Junk packet count
+Jmin = {{ amneziawg_jmin }}  # Junk packet minimum size
+Jmax = {{ amneziawg_jmax }}  # Junk packet maximum size
+S1 = {{ amneziawg_s1 }}      # Init packet junk size
+S2 = {{ amneziawg_s2 }}      # Response packet junk size
+H1 = {{ amneziawg_h1 }}      # Init packet magic header
+H2 = {{ amneziawg_h2 }}      # Response packet magic header
+H3 = {{ amneziawg_h3 }}      # Underload packet magic header
+H4 = {{ amneziawg_h4 }}      # Transport packet magic header
+
+# NAT and forwarding (IPv4)
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+{% if wg_ipv6_enabled %}
+# NAT and forwarding (IPv6)
+PostUp = ip6tables -A FORWARD -i %i -j ACCEPT; ip6tables -A FORWARD -o %i -j ACCEPT; ip6tables -t nat -A POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+PostDown = ip6tables -D FORWARD -i %i -j ACCEPT; ip6tables -D FORWARD -o %i -j ACCEPT; ip6tables -t nat -D POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+{% endif %}
+
+SaveConfig = {{ wg_save_config | lower }}
+
+# Peers are managed by WireGuard Dashboard (stored in SQLite database)

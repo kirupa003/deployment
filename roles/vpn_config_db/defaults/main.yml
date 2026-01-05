@@ -1,0 +1,48 @@
+---
+# Centralized VPN Configuration Database
+# Stores all peer configs for all VPN gateways
+#
+# SCALABILITY:
+#   - Small (30 servers, 7K peers): Default settings
+#   - Medium (200 servers, 50K peers): max_connections=200, shared_buffers=512MB
+#   - Large (1000 servers, 250K peers): max_connections=500, shared_buffers=2GB
+#   - Enterprise (5000+ servers): Use PostgreSQL cluster with read replicas
+
+# PostgreSQL settings
+vpn_db_host: "{{ groups['vpn_config_db'][0] | default('localhost') }}"
+vpn_db_port: 5432
+vpn_db_name: "vpn_configs"
+vpn_db_user: "vpn_admin"
+vpn_db_password: "{{ vault_vpn_db_password | default('changeme') }}"
+
+# Database connection pool
+# Scale these based on server count:
+#   - 100 servers: max_connections=100
+#   - 500 servers: max_connections=300
+#   - 1000 servers: max_connections=500
+vpn_db_max_connections: 100
+vpn_db_shared_buffers: "256MB"
+vpn_db_effective_cache_size: "512MB"
+vpn_db_work_mem: "16MB"
+
+# Backup settings
+vpn_db_backup_enabled: true
+vpn_db_backup_retention_days: 30
+vpn_db_backup_path: "/var/backups/vpn-configs"
+
+# Replication (optional)
+vpn_db_replication_enabled: false
+vpn_db_replica_hosts: []
+
+# SSL/TLS
+vpn_db_ssl_enabled: true
+vpn_db_ssl_cert: "/etc/postgresql/ssl/server.crt"
+vpn_db_ssl_key: "/etc/postgresql/ssl/server.key"
+
+# API access credentials (for VPN gateways)
+vpn_db_api_user: "vpn_api"
+vpn_db_api_password: "{{ vault_vpn_api_password | default('changeme') }}"
+
+# Read-only user for reporting
+vpn_db_readonly_user: "vpn_readonly"
+vpn_db_readonly_password: "{{ vault_vpn_readonly_password | default('changeme') }}"

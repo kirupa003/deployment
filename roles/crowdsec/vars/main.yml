@@ -1,0 +1,44 @@
+---
+# CrowdSec Role Variables
+crowdsec_package_name: "crowdsec"
+crowdsec_bouncer_package_name: "crowdsec-firewall-bouncer-iptables"
+
+# Repository configuration
+crowdsec_repo_key_url: "https://packagecloud.io/crowdsec/crowdsec/gpgkey"
+crowdsec_repo_url: "https://packagecloud.io/crowdsec/crowdsec"
+
+# Service names
+crowdsec_service_name: "crowdsec"
+crowdsec_bouncer_service_name: "crowdsec-firewall-bouncer"
+
+# Default ports for VPN services
+vpn_service_ports:
+  wireguard:
+    - protocol: "udp"
+      port: "51820"
+  openvpn:
+    - protocol: "udp"
+      port: "1194"
+    - protocol: "tcp"
+      port: "1194"
+  amneziawg:
+    - protocol: "udp"
+      port: "51821"
+
+# Web service ports
+web_service_ports:
+  - protocol: "tcp"
+    port: "80"
+  - protocol: "tcp"
+    port: "443"
+  - protocol: "tcp"
+    port: "8080"
+  - protocol: "tcp"
+    port: "10086"  # WireGuard Dashboard
+
+# SSH service ports
+ssh_service_ports:
+  - protocol: "tcp"
+    port: "22"
+  - protocol: "tcp"
+    port: "2222"

@@ -1,0 +1,33 @@
+---
+- name: Install UFW and dependencies
+  block:
+    - name: Install ufw package
+      apt:
+        name:
+          - ufw
+          - iptables
+          - netfilter-persistent
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Check UFW version
+      command: ufw version
+      register: ufw_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display UFW version
+      debug:
+        msg: "UFW version: {{ ufw_version.stdout | default('Not installed') }}"
+
+    - name: Ensure UFW service is available
+      systemd:
+        name: ufw
+        state: stopped
+      become: true
+      failed_when: false
+
+  tags:
+    - ufw
+    - install

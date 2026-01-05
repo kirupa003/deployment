@@ -1,0 +1,60 @@
+---
+# Host-specific configuration for eu-vpn-ovpn-01.example.com
+
+# Server Identity
+server_id: eu-ovpn-01
+server_name: "Europe OpenVPN Server 01"
+server_description: "Primary OpenVPN server in Frankfurt"
+
+# Network Configuration
+ansible_host: 10.1.1.20
+public_ip: 203.0.113.20
+private_ip: 10.1.1.20
+
+# Hardware Specifications
+cpu_cores: 4
+memory_gb: 8
+disk_gb: 100
+network_bandwidth_mbps: 1000
+
+# OpenVPN Configuration
+openvpn_server_name: "eu-ovpn-01"
+openvpn_server_cert: "{{ vault_eu_ovpn_01_cert }}"
+openvpn_server_key: "{{ vault_eu_ovpn_01_key }}"
+openvpn_dh_params: "{{ vault_eu_ovpn_01_dh }}"
+
+# Capacity Settings
+max_concurrent_connections: 600  # OpenVPN typically handles fewer connections
+current_load_threshold: 75
+
+# Monitoring Configuration
+custom_metrics:
+  - name: connection_count
+    threshold: 500
+  - name: bandwidth_utilization
+    threshold: 80
+  - name: certificate_expiry_days
+    threshold: 30
+
+# Maintenance Windows
+maintenance_window:
+  day: sunday
+  start_time: "02:30"
+  duration_hours: 2
+  timezone: "{{ timezone }}"
+
+# Backup Configuration
+backup_priority: high
+backup_frequency: daily
+backup_include_pki: true
+
+# Performance Tuning
+kernel_parameters:
+  net.core.netdev_max_backlog: 5000
+  net.ipv4.tcp_congestion_control: bbr
+  net.core.rmem_max: 134217728
+  net.core.wmem_max: 134217728
+
+# Certificate Management
+certificate_auto_renewal: true
+certificate_renewal_days_before: 30

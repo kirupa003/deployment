@@ -1,0 +1,30 @@
+---
+# OpenVPN Role Variables
+
+# OS-specific package names
+_openvpn_packages:
+  Ubuntu:
+    - openvpn
+    - easy-rsa
+    - iptables-persistent
+    - openssl
+    - curl
+  Debian:
+    - openvpn
+    - easy-rsa
+    - iptables-persistent
+    - openssl
+    - curl
+
+# Service names by OS
+_openvpn_service_udp: "openvpn@server-udp"
+_openvpn_service_tcp: "openvpn@server-tcp"
+
+# Configuration paths
+_openvpn_config_dir: /etc/openvpn
+_openvpn_server_config_udp: "{{ _openvpn_config_dir }}/server-udp.conf"
+_openvpn_server_config_tcp: "{{ _openvpn_config_dir }}/server-tcp.conf"
+
+# Easy-RSA paths
+_easyrsa_dir: /usr/share/easy-rsa
+_easyrsa_bin: "{{ _easyrsa_dir }}/easyrsa"

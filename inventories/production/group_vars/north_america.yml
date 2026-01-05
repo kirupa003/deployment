@@ -1,0 +1,53 @@
+---
+# North America region configuration
+
+# Regional settings
+region:
+  name: "north_america"
+  code: "na"
+  timezone: "America/New_York"
+  total_servers: 10
+  
+# Network configuration
+network:
+  region_subnet: "10.2.0.0/16"
+  wireguard_subnet: "10.2.1.0/24"
+  openvpn_subnet: "10.2.2.0/24"
+  amneziawg_subnet: "10.2.3.0/24"
+  
+# DNS settings
+dns:
+  primary_servers:
+    - "8.8.8.8"      # Google
+    - "1.1.1.1"      # Cloudflare
+  secondary_servers:
+    - "208.67.222.222"  # OpenDNS
+    - "9.9.9.9"      # Quad9
+    
+# NTP servers for North America
+ntp_servers:
+  - "north-america.pool.ntp.org"
+  - "time.google.com"
+  
+# Monitoring endpoints
+monitoring:
+  prometheus_endpoint: "prometheus-na.monitoring.local"
+  loki_endpoint: "loki-na.monitoring.local"
+  grafana_endpoint: "grafana-na.monitoring.local"
+  
+# Backup configuration
+backup:
+  s3_region: "us-east-1"
+  s3_bucket: "vpn-backups-north-america"
+  
+# Compliance settings
+compliance:
+  ccpa_enabled: true
+  data_retention_days: 90
+  log_anonymization: false
+  
+# Performance settings
+performance:
+  max_bandwidth_mbps: 1000
+  connection_limit_per_ip: 10
+  rate_limit_enabled: false

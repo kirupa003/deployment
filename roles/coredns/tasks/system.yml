@@ -1,0 +1,52 @@
+---
+- name: Create CoreDNS system user
+  user:
+    name: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    system: yes
+    shell: /bin/false
+    home: "{{ coredns_home }}"
+    create_home: no
+    comment: "CoreDNS DNS Server"
+  become: yes
+
+- name: Create CoreDNS system group
+  group:
+    name: "{{ coredns_group }}"
+    system: yes
+  become: yes
+
+- name: Create CoreDNS directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0755'
+  become: yes
+  loop:
+    - "{{ coredns_home }}"
+    - "{{ coredns_config_dir }}"
+    - "{{ coredns_data_dir }}"
+    - "{{ coredns_log_dir }}"
+    - "{{ coredns_data_dir }}/blocklists"
+    - "{{ coredns_data_dir }}/cache"
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - wget
+      - logrotate
+      - systemd
+    state: present
+  become: yes
+
+- name: Set up log rotation for CoreDNS
+  template:
+    src: coredns.logrotate.j2
+    dest: /etc/logrotate.d/coredns
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes

@@ -1,0 +1,38 @@
+# {{ ansible_managed }}
+# PostgreSQL Client Authentication Configuration
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# Local connections
+local   all             postgres                                peer
+local   all             all                                     peer
+
+# IPv4 local connections
+host    all             all             127.0.0.1/32            scram-sha-256
+
+# IPv6 local connections
+host    all             all             ::1/128                 scram-sha-256
+
+# VPN servers (WireGuard)
+{% for host in groups['wireguard_servers'] | default([]) %}
+host    {{ vpn_db_name }}  {{ vpn_db_api_user }}  {{ hostvars[host]['ansible_host'] | default(host) }}/32  scram-sha-256
+{% endfor %}
+
+# VPN servers (AmneziaWG)
+{% for host in groups['amneziawg_servers'] | default([]) %}
+host    {{ vpn_db_name }}  {{ vpn_db_api_user }}  {{ hostvars[host]['ansible_host'] | default(host) }}/32  scram-sha-256
+{% endfor %}
+
+# VPN servers (OpenVPN)
+{% for host in groups['openvpn_servers'] | default([]) %}
+host    {{ vpn_db_name }}  {{ vpn_db_api_user }}  {{ hostvars[host]['ansible_host'] | default(host) }}/32  scram-sha-256
+{% endfor %}
+
+# API server
+{% for host in groups['vpn_config_api'] | default([]) %}
+host    {{ vpn_db_name }}  {{ vpn_db_api_user }}  {{ hostvars[host]['ansible_host'] | default(host) }}/32  scram-sha-256
+{% endfor %}
+
+# Internal network (for management)
+host    {{ vpn_db_name }}  {{ vpn_db_user }}      10.0.0.0/8              scram-sha-256
+host    {{ vpn_db_name }}  {{ vpn_db_readonly_user }}  10.0.0.0/8         scram-sha-256

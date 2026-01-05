@@ -1,0 +1,590 @@
+---
+# Backup and Disaster Recovery Playbook
+# Comprehensive backup and recovery procedures for VPN infrastructure
+# Requirements: 4.3
+
+- name: VPN Infrastructure Backup and Disaster Recovery
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ backup_batch_size | default(5) }}"
+  
+  vars:
+    backup_timestamp: "{{ ansible_date_time.epoch }}"
+    backup_id: "backup-{{ backup_timestamp }}"
+    backup_type: "{{ backup_type | default('full') }}"  # full, incremental, configuration
+    backup_destination: "{{ backup_destination | default('/opt/backups') }}"
+    remote_backup_server: "{{ remote_backup_server | default('backup.example.com') }}"
+    retention_days: "{{ retention_days | default(30) }}"
+    
+  pre_tasks:
+    - name: Validate backup prerequisites
+      block:
+        - name: Check backup destination directory
+          file:
+            path: "{{ backup_destination }}"
+            state: directory
+            mode: '0700'
+            owner: root
+            group: root
+            
+        - name: Verify available disk space for backup
+          shell: |
+            df {{ backup_destination }} | awk 'NR==2 {print $4}'
+          register: available_space
+          changed_when: false
+          
+        - name: Calculate required backup space
+          shell: |
+            du -s /etc /opt /var/log | awk '{sum += $1} END {print sum}'
+          register: required_space
+          changed_when: false
+          
+        - name: Ensure sufficient backup space
+          assert:
+            that:
+              - (available_space.stdout | int) > (required_space.stdout | int * 2)
+            fail_msg: "Insufficient disk space for backup. Available: {{ available_space.stdout }}KB, Required: {{ required_space.stdout | int * 2 }}KB"
+            
+        - name: Test remote backup server connectivity
+          wait_for:
+            host: "{{ remote_backup_server }}"
+            port: 22
+            timeout: 10
+          delegate_to: localhost
+          when: enable_remote_backup | default(true)
+          
+    - name: Create backup log entry
+      lineinfile:
+        path: /var/log/backup-recovery.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting {{ backup_type }} backup {{ backup_id }} on {{ inventory_hostname }}"
+        create: yes
+
+  tasks:
+    # Configuration Backup
+    - name: Configuration Files Backup
+      block:
+        - name: Create configuration backup directory
+          file:
+            path: "{{ backup_destination }}/{{ backup_id }}/config"
+            state: directory
+            mode: '0700'
+            
+        - name: Backup system configuration files
+          archive:
+            path:
+              - /etc/ssh
+              - /etc/ufw
+              - /etc/fail2ban
+              - /etc/crowdsec
+              - /etc/systemd/system
+              - /etc/cron.d
+              - /etc/logrotate.d
+            dest: "{{ backup_destination }}/{{ backup_id }}/config/system-config.tar.gz"
+            format: gz
+            
+        - name: Backup VPN configuration files
+          archive:
+            path:
+              - /etc/wireguard
+              - /etc/openvpn
+            dest: "{{ backup_destination }}/{{ backup_id }}/config/vpn-config.tar.gz"
+            format: gz
+            exclude_path:
+              - /etc/wireguard/*.key
+              - /etc/openvpn/keys/*.key
+              - /etc/openvpn/ca/ca.key
+              
+        - name: Backup monitoring configuration
+          archive:
+            path:
+              - /etc/prometheus
+              - /etc/grafana
+              - /opt/wireguard-dashboard
+            dest: "{{ backup_destination }}/{{ backup_id }}/config/monitoring-config.tar.gz"
+            format: gz
+            ignore_errors: yes
+            
+        - name: Create configuration inventory
+          shell: |
+            find /etc -name "*.conf" -o -name "*.cfg" -o -name "*.ini" | sort > {{ backup_destination }}/{{ backup_id }}/config/config-inventory.txt
+          changed_when: false
+
+    # Certificates and Keys Backup (Encrypted)
+    - name: Certificates and Keys Backup
+      block:
+        - name: Create secure keys backup directory
+          file:
+            path: "{{ backup_destination }}/{{ backup_id }}/keys"
+            state: directory
+            mode: '0700'
+            
+        - name: Backup OpenVPN certificates and keys
+          block:
+            - name: Create OpenVPN keys archive
+              archive:
+                path:
+                  - /etc/openvpn/ca
+                  - /etc/openvpn/certs
+                  - /etc/openvpn/keys
+                dest: "{{ backup_destination }}/{{ backup_id }}/keys/openvpn-pki.tar"
+                format: tar
+                
+            - name: Encrypt OpenVPN keys backup
+              shell: |
+                gpg --symmetric --cipher-algo AES256 --compress-algo 2 --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65536 --passphrase "{{ backup_encryption_key | default('default-backup-key') }}" --batch --yes --output {{ backup_destination }}/{{ backup_id }}/keys/openvpn-pki.tar.gpg {{ backup_destination }}/{{ backup_id }}/keys/openvpn-pki.tar
+              no_log: true
+              
+            - name: Remove unencrypted OpenVPN backup
+              file:
+                path: "{{ backup_destination }}/{{ backup_id }}/keys/openvpn-pki.tar"
+                state: absent
+                
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Backup WireGuard keys
+          block:
+            - name: Create WireGuard keys archive
+              archive:
+                path:
+                  - /etc/wireguard
+                dest: "{{ backup_destination }}/{{ backup_id }}/keys/wireguard-keys.tar"
+                format: tar
+                
+            - name: Encrypt WireGuard keys backup
+              shell: |
+                gpg --symmetric --cipher-algo AES256 --compress-algo 2 --s2k-mode 3 --s2k-digest-algo SHA512 --s2k-count 65536 --passphrase "{{ backup_encryption_key | default('default-backup-key') }}" --batch --yes --output {{ backup_destination }}/{{ backup_id }}/keys/wireguard-keys.tar.gpg {{ backup_destination }}/{{ backup_id }}/keys/wireguard-keys.tar
+              no_log: true
+              
+            - name: Remove unencrypted WireGuard backup
+              file:
+                path: "{{ backup_destination }}/{{ backup_id }}/keys/wireguard-keys.tar"
+                state: absent
+                
+          when: "'wireguard_servers' in group_names"
+
+    # Database and State Backup
+    - name: Database and State Backup
+      block:
+        - name: Create database backup directory
+          file:
+            path: "{{ backup_destination }}/{{ backup_id }}/database"
+            state: directory
+            mode: '0700'
+            
+        - name: Backup CrowdSec database
+          copy:
+            src: /var/lib/crowdsec/data/crowdsec.db
+            dest: "{{ backup_destination }}/{{ backup_id }}/database/crowdsec.db"
+            remote_src: yes
+          ignore_errors: yes
+          
+        - name: Backup Fail2Ban database
+          copy:
+            src: /var/lib/fail2ban/fail2ban.sqlite3
+            dest: "{{ backup_destination }}/{{ backup_id }}/database/fail2ban.sqlite3"
+            remote_src: yes
+          ignore_errors: yes
+          
+        - name: Export system state information
+          shell: |
+            {
+              echo "=== System Information ==="
+              uname -a
+              echo "=== Network Configuration ==="
+              ip addr show
+              echo "=== Routing Table ==="
+              ip route show
+              echo "=== Firewall Rules ==="
+              iptables -L -n
+              echo "=== Services Status ==="
+              systemctl list-units --type=service --state=running
+              echo "=== Disk Usage ==="
+              df -h
+              echo "=== Memory Usage ==="
+              free -h
+            } > {{ backup_destination }}/{{ backup_id }}/database/system-state.txt
+          changed_when: false
+
+    # Log Files Backup
+    - name: Log Files Backup
+      block:
+        - name: Create logs backup directory
+          file:
+            path: "{{ backup_destination }}/{{ backup_id }}/logs"
+            state: directory
+            mode: '0700'
+            
+        - name: Backup system logs
+          archive:
+            path:
+              - /var/log/syslog*
+              - /var/log/auth.log*
+              - /var/log/kern.log*
+              - /var/log/daemon.log*
+            dest: "{{ backup_destination }}/{{ backup_id }}/logs/system-logs.tar.gz"
+            format: gz
+            
+        - name: Backup VPN service logs
+          archive:
+            path:
+              - /var/log/openvpn*
+              - /var/log/wireguard*
+              - /var/log/fail2ban*
+              - /var/log/crowdsec*
+            dest: "{{ backup_destination }}/{{ backup_id }}/logs/vpn-logs.tar.gz"
+            format: gz
+            ignore_errors: yes
+            
+        - name: Backup application logs
+          archive:
+            path:
+              - /var/log/ansible*
+              - /var/log/health-checks.log
+              - /var/log/security-audit.log
+              - /var/log/backup-recovery.log
+            dest: "{{ backup_destination }}/{{ backup_id }}/logs/application-logs.tar.gz"
+            format: gz
+            ignore_errors: yes
+
+    # User Data and Client Configurations Backup
+    - name: User Data and Client Configurations Backup
+      block:
+        - name: Create user data backup directory
+          file:
+            path: "{{ backup_destination }}/{{ backup_id }}/userdata"
+            state: directory
+            mode: '0700'
+            
+        - name: Backup WireGuard client configurations
+          shell: |
+            if [ -d /opt/wireguard-dashboard/src/db ]; then
+              cp -r /opt/wireguard-dashboard/src/db {{ backup_destination }}/{{ backup_id }}/userdata/wg-dashboard-db
+            fi
+          ignore_errors: yes
+          when: "'wireguard_servers' in group_names"
+          
+        - name: Backup OpenVPN client configurations
+          shell: |
+            if [ -d /etc/openvpn/client-configs ]; then
+              tar -czf {{ backup_destination }}/{{ backup_id }}/userdata/openvpn-client-configs.tar.gz -C /etc/openvpn client-configs
+            fi
+          ignore_errors: yes
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Create client inventory
+          shell: |
+            {
+              echo "=== WireGuard Clients ==="
+              wg show {{ wireguard_interface | default('wg0') }} 2>/dev/null || echo "WireGuard not configured"
+              echo "=== OpenVPN Clients ==="
+              if [ -f /etc/openvpn/ipp.txt ]; then
+                cat /etc/openvpn/ipp.txt
+              else
+                echo "OpenVPN client database not found"
+              fi
+            } > {{ backup_destination }}/{{ backup_id }}/userdata/client-inventory.txt
+          changed_when: false
+
+    # Create Backup Manifest
+    - name: Create Backup Manifest
+      block:
+        - name: Generate backup manifest
+          shell: |
+            {
+              echo "Backup ID: {{ backup_id }}"
+              echo "Backup Type: {{ backup_type }}"
+              echo "Server: {{ inventory_hostname }}"
+              echo "Timestamp: {{ ansible_date_time.iso8601 }}"
+              echo "Ansible User: {{ ansible_user }}"
+              echo ""
+              echo "=== Backup Contents ==="
+              find {{ backup_destination }}/{{ backup_id }} -type f -exec ls -lh {} \; | sort
+              echo ""
+              echo "=== Checksums ==="
+              find {{ backup_destination }}/{{ backup_id }} -type f -exec sha256sum {} \;
+            } > {{ backup_destination }}/{{ backup_id }}/MANIFEST.txt
+          changed_when: false
+          
+        - name: Create backup metadata
+          copy:
+            content: |
+              {
+                "backup_id": "{{ backup_id }}",
+                "backup_type": "{{ backup_type }}",
+                "server": "{{ inventory_hostname }}",
+                "timestamp": "{{ ansible_date_time.iso8601 }}",
+                "ansible_user": "{{ ansible_user }}",
+                "retention_until": "{{ (ansible_date_time.epoch | int + (retention_days | int * 86400)) | strftime('%Y-%m-%d') }}",
+                "backup_size_bytes": "{{ backup_size.stdout | default('0') }}",
+                "encryption_enabled": {{ (backup_encryption_key is defined) | lower }}
+              }
+            dest: "{{ backup_destination }}/{{ backup_id }}/metadata.json"
+            
+        - name: Calculate total backup size
+          shell: |
+            du -sb {{ backup_destination }}/{{ backup_id }} | cut -f1
+          register: backup_size
+          changed_when: false
+
+    # Remote Backup Transfer
+    - name: Remote Backup Transfer
+      block:
+        - name: Create remote backup archive
+          archive:
+            path: "{{ backup_destination }}/{{ backup_id }}"
+            dest: "{{ backup_destination }}/{{ backup_id }}.tar.gz"
+            format: gz
+            
+        - name: Transfer backup to remote server
+          synchronize:
+            src: "{{ backup_destination }}/{{ backup_id }}.tar.gz"
+            dest: "{{ remote_backup_user | default('backup') }}@{{ remote_backup_server }}:{{ remote_backup_path | default('/backups') }}/{{ inventory_hostname }}/"
+            mode: push
+            rsync_opts:
+              - "--chmod=600"
+              - "--progress"
+          register: remote_transfer_result
+          
+        - name: Verify remote backup integrity
+          shell: |
+            ssh {{ remote_backup_user | default('backup') }}@{{ remote_backup_server }} "sha256sum {{ remote_backup_path | default('/backups') }}/{{ inventory_hostname }}/{{ backup_id }}.tar.gz"
+          register: remote_checksum
+          changed_when: false
+          delegate_to: localhost
+          
+        - name: Compare checksums
+          shell: |
+            sha256sum {{ backup_destination }}/{{ backup_id }}.tar.gz
+          register: local_checksum
+          changed_when: false
+          
+        - name: Verify backup integrity
+          assert:
+            that:
+              - local_checksum.stdout.split()[0] == remote_checksum.stdout.split()[0]
+            fail_msg: "Backup integrity check failed - checksums do not match"
+            
+      when: enable_remote_backup | default(true)
+
+  post_tasks:
+    - name: Backup Cleanup and Maintenance
+      block:
+        - name: Remove old local backups
+          find:
+            paths: "{{ backup_destination }}"
+            patterns: "backup-*"
+            file_type: directory
+            age: "{{ retention_days }}d"
+          register: old_backups
+          
+        - name: Delete expired backups
+          file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ old_backups.files }}"
+          
+        - name: Update backup log with completion
+          lineinfile:
+            path: /var/log/backup-recovery.log
+            line: "{{ ansible_date_time.iso8601 }} - Completed {{ backup_type }} backup {{ backup_id }} on {{ inventory_hostname }} - Size: {{ (backup_size.stdout | int / 1024 / 1024) | round(2) }}MB"
+            
+        - name: Generate backup report
+          template:
+            src: backup-report.j2
+            dest: "/tmp/backup-report-{{ backup_id }}-{{ inventory_hostname }}.txt"
+          vars:
+            backup_summary:
+              backup_id: "{{ backup_id }}"
+              backup_type: "{{ backup_type }}"
+              size_mb: "{{ (backup_size.stdout | int / 1024 / 1024) | round(2) }}"
+              remote_transfer: "{{ 'SUCCESS' if remote_transfer_result is succeeded else 'FAILED' }}"
+              integrity_check: "{{ 'PASSED' if local_checksum.stdout.split()[0] == remote_checksum.stdout.split()[0] else 'FAILED' }}"
+              
+        - name: Send backup completion notification
+          mail:
+            to: "{{ ops_email | default('ops@example.com') }}"
+            subject: "Backup Completed - {{ inventory_hostname }} ({{ (backup_size.stdout | int / 1024 / 1024) | round(2) }}MB)"
+            body: |
+              Backup completed successfully for {{ inventory_hostname }}.
+              
+              Backup ID: {{ backup_id }}
+              Backup Type: {{ backup_type }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              Size: {{ (backup_size.stdout | int / 1024 / 1024) | round(2) }}MB
+              
+              Local Path: {{ backup_destination }}/{{ backup_id }}
+              Remote Transfer: {{ 'SUCCESS' if remote_transfer_result is succeeded else 'FAILED' }}
+              Integrity Check: {{ 'PASSED' if local_checksum.stdout.split()[0] == remote_checksum.stdout.split()[0] else 'FAILED' }}
+              
+              Report: /tmp/backup-report-{{ backup_id }}-{{ inventory_hostname }}.txt
+          delegate_to: localhost
+          when: notify_on_completion | default(true)
+
+# Disaster Recovery Procedures
+- name: Disaster Recovery Procedures
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  when: disaster_recovery_mode | default(false)
+  
+  vars:
+    recovery_backup_id: "{{ recovery_backup_id | mandatory }}"
+    recovery_type: "{{ recovery_type | default('full') }}"  # full, configuration, selective
+    
+  tasks:
+    - name: Disaster Recovery Initialization
+      block:
+        - name: Create recovery log entry
+          lineinfile:
+            path: /var/log/backup-recovery.log
+            line: "{{ ansible_date_time.iso8601 }} - DISASTER RECOVERY initiated on {{ inventory_hostname }} using backup {{ recovery_backup_id }}"
+            create: yes
+            
+        - name: Stop all VPN services for recovery
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - fail2ban
+            - crowdsec
+          when: item != omit
+          ignore_errors: yes
+          
+        - name: Create recovery working directory
+          file:
+            path: /tmp/disaster-recovery-{{ ansible_date_time.epoch }}
+            state: directory
+            mode: '0700'
+
+    - name: Restore from Backup
+      block:
+        - name: Download backup from remote server
+          synchronize:
+            src: "{{ remote_backup_user | default('backup') }}@{{ remote_backup_server }}:{{ remote_backup_path | default('/backups') }}/{{ inventory_hostname }}/{{ recovery_backup_id }}.tar.gz"
+            dest: "/tmp/{{ recovery_backup_id }}.tar.gz"
+            mode: pull
+          when: restore_from_remote | default(true)
+          
+        - name: Extract backup archive
+          unarchive:
+            src: "/tmp/{{ recovery_backup_id }}.tar.gz"
+            dest: /tmp
+            remote_src: yes
+            
+        - name: Restore system configuration
+          unarchive:
+            src: "/tmp/{{ recovery_backup_id }}/config/system-config.tar.gz"
+            dest: /
+            remote_src: yes
+          when: recovery_type in ['full', 'configuration']
+          
+        - name: Restore VPN configuration
+          unarchive:
+            src: "/tmp/{{ recovery_backup_id }}/config/vpn-config.tar.gz"
+            dest: /
+            remote_src: yes
+          when: recovery_type in ['full', 'configuration']
+          
+        - name: Restore encrypted certificates and keys
+          block:
+            - name: Decrypt OpenVPN keys
+              shell: |
+                gpg --decrypt --batch --yes --passphrase "{{ backup_encryption_key | default('default-backup-key') }}" /tmp/{{ recovery_backup_id }}/keys/openvpn-pki.tar.gpg | tar -xf - -C /
+              no_log: true
+              when: "'openvpn_servers' in group_names"
+              
+            - name: Decrypt WireGuard keys
+              shell: |
+                gpg --decrypt --batch --yes --passphrase "{{ backup_encryption_key | default('default-backup-key') }}" /tmp/{{ recovery_backup_id }}/keys/wireguard-keys.tar.gpg | tar -xf - -C /
+              no_log: true
+              when: "'wireguard_servers' in group_names"
+              
+        - name: Restore databases
+          block:
+            - name: Restore CrowdSec database
+              copy:
+                src: "/tmp/{{ recovery_backup_id }}/database/crowdsec.db"
+                dest: /var/lib/crowdsec/data/crowdsec.db
+                remote_src: yes
+                owner: crowdsec
+                group: crowdsec
+              ignore_errors: yes
+              
+            - name: Restore Fail2Ban database
+              copy:
+                src: "/tmp/{{ recovery_backup_id }}/database/fail2ban.sqlite3"
+                dest: /var/lib/fail2ban/fail2ban.sqlite3
+                remote_src: yes
+                owner: root
+                group: root
+              ignore_errors: yes
+
+    - name: Post-Recovery Validation
+      block:
+        - name: Restart VPN services
+          systemd:
+            name: "{{ item }}"
+            state: started
+            enabled: yes
+          loop:
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - fail2ban
+            - crowdsec
+          when: item != omit
+          register: service_recovery_results
+          
+        - name: Validate service functionality
+          block:
+            - name: Test WireGuard functionality
+              command: wg show {{ wireguard_interface | default('wg0') }}
+              register: wg_recovery_test
+              when: "'wireguard_servers' in group_names"
+              changed_when: false
+              
+            - name: Test OpenVPN functionality
+              command: systemctl is-active openvpn@server
+              register: ovpn_recovery_test
+              when: "'openvpn_servers' in group_names"
+              changed_when: false
+              
+        - name: Generate recovery report
+          template:
+            src: disaster-recovery-report.j2
+            dest: "/tmp/disaster-recovery-{{ recovery_backup_id }}-{{ inventory_hostname }}.txt"
+          vars:
+            recovery_summary:
+              backup_id: "{{ recovery_backup_id }}"
+              recovery_type: "{{ recovery_type }}"
+              services_restored: "{{ service_recovery_results.results | selectattr('state', 'equalto', 'started') | list | length }}"
+              wg_functional: "{{ wg_recovery_test.rc == 0 if wg_recovery_test is defined else 'N/A' }}"
+              ovpn_functional: "{{ ovpn_recovery_test.stdout == 'active' if ovpn_recovery_test is defined else 'N/A' }}"
+              
+        - name: Update recovery log with completion
+          lineinfile:
+            path: /var/log/backup-recovery.log
+            line: "{{ ansible_date_time.iso8601 }} - DISASTER RECOVERY completed on {{ inventory_hostname }} using backup {{ recovery_backup_id }} - Status: SUCCESS"
+            
+        - name: Send recovery completion notification
+          mail:
+            to: "{{ ops_email | default('ops@example.com') }}"
+            cc: "{{ management_email | default('management@example.com') }}"
+            subject: "DISASTER RECOVERY COMPLETED - {{ inventory_hostname }}"
+            body: |
+              Disaster recovery completed for {{ inventory_hostname }}.
+              
+              Recovery Backup ID: {{ recovery_backup_id }}
+              Recovery Type: {{ recovery_type }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Services Restored: {{ service_recovery_results.results | selectattr('state', 'equalto', 'started') | list | length }}
+              WireGuard Status: {{ 'FUNCTIONAL' if (wg_recovery_test.rc == 0 if wg_recovery_test is defined else false) else 'N/A' }}
+              OpenVPN Status: {{ 'FUNCTIONAL' if (ovpn_recovery_test.stdout == 'active' if ovpn_recovery_test is defined else false) else 'N/A' }}
+              
+              Recovery Report: /tmp/disaster-recovery-{{ recovery_backup_id }}-{{ inventory_hostname }}.txt
+              
+              Server is now operational and ready for service.
+          delegate_to: localhost

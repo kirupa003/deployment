@@ -1,0 +1,34 @@
+---
+- name: Install Fail2Ban and dependencies
+  block:
+    - name: Install fail2ban package
+      apt:
+        name:
+          - fail2ban
+          - python3-systemd  # For systemd backend
+          - whois           # For whois action
+          - iptables        # For firewall actions
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Check if fail2ban is installed
+      command: fail2ban-client --version
+      register: fail2ban_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display fail2ban version
+      debug:
+        msg: "Fail2Ban version: {{ fail2ban_version.stdout | default('Not installed') }}"
+
+    - name: Ensure fail2ban service is available
+      systemd:
+        name: fail2ban
+        state: stopped
+      become: true
+      failed_when: false
+
+  tags:
+    - fail2ban
+    - install

@@ -1,0 +1,32 @@
+[Unit]
+Description=Cloudflare Tunnel - {{ cloudflare_tunnel_name }}
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+TimeoutStartSec=0
+ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel run --token {{ cloudflare_tunnel_token }}
+Restart=always
+RestartSec=5
+User={{ cloudflared_user }}
+Group={{ cloudflared_user }}
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ cloudflared_config_dir }}
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared
+
+[Install]
+WantedBy=multi-user.target

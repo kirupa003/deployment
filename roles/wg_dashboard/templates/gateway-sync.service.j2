@@ -1,0 +1,41 @@
+# {{ ansible_managed }}
+# VPN Gateway Sync Service
+# Synchronizes local WireGuard config with central database
+
+[Unit]
+Description=VPN Gateway Sync Service
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Environment="VPN_API_URL={{ vpn_api_url | default('http://10.0.1.50:8080') }}"
+Environment="GATEWAY_ID={{ inventory_hostname }}"
+Environment="GATEWAY_TOKEN={{ vpn_gateway_token }}"
+Environment="SYNC_INTERVAL={{ vpn_sync_interval | default(60) }}"
+Environment="WG_INTERFACE={{ wg_interface }}"
+Environment="VPN_PROTOCOL={{ vpn_protocol | default('wireguard') }}"
+Environment="VPN_REGION={{ vpn_region }}"
+Environment="VPN_COUNTRY={{ vpn_country | default('XX') }}"
+Environment="DASHBOARD_DB={{ wg_dashboard_db_path }}/db.sqlite"
+Environment="PUBLIC_IP={{ wg_dashboard_public_ip | default('') }}"
+Environment="WG_LISTEN_PORT={{ wg_listen_port }}"
+{% if vpn_protocol == 'amneziawg' %}
+Environment="AWG_JC={{ amneziawg_jc }}"
+Environment="AWG_JMIN={{ amneziawg_jmin }}"
+Environment="AWG_JMAX={{ amneziawg_jmax }}"
+Environment="AWG_S1={{ amneziawg_s1 }}"
+Environment="AWG_S2={{ amneziawg_s2 }}"
+Environment="AWG_H1={{ amneziawg_h1 }}"
+Environment="AWG_H2={{ amneziawg_h2 }}"
+Environment="AWG_H3={{ amneziawg_h3 }}"
+Environment="AWG_H4={{ amneziawg_h4 }}"
+{% endif %}
+
+ExecStart=/usr/bin/python3 /opt/wg-dashboard/gateway-sync.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,77 @@
+---
+# CoreDNS Configuration
+coredns_version: "1.11.1"
+coredns_user: "coredns"
+coredns_group: "coredns"
+coredns_home: "/opt/coredns"
+coredns_config_dir: "/etc/coredns"
+coredns_data_dir: "/var/lib/coredns"
+coredns_log_dir: "/var/log/coredns"
+
+# Service Configuration
+coredns_listen_port: 53
+coredns_listen_address: "0.0.0.0"
+coredns_metrics_port: 9153
+coredns_health_port: 8080
+
+# DNS Configuration
+coredns_upstream_resolvers:
+  - "1.1.1.1"
+  - "1.0.0.1"
+  - "8.8.8.8"
+  - "8.8.4.4"
+
+# Ad-blocking Configuration
+coredns_adblock_enabled: true
+coredns_adblock_lists:
+  - name: "adguard"
+    url: "https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt"
+    format: "adguard"
+  - name: "easylist"
+    url: "https://easylist.to/easylist/easylist.txt"
+    format: "adblock"
+  - name: "pihole"
+    url: "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+    format: "hosts"
+  - name: "malware"
+    url: "https://malware-filter.gitlab.io/malware-filter/urlhaus-filter-hosts.txt"
+    format: "hosts"
+
+# Cache Configuration
+coredns_cache_ttl: 3600
+coredns_cache_size: 10000
+
+# Logging Configuration
+coredns_log_level: "info"
+coredns_query_logging: true
+coredns_log_format: "json"
+
+# Analytics Configuration
+coredns_analytics_enabled: true
+coredns_analytics_export_interval: "30s"
+
+# Firewall Configuration
+coredns_firewall_rules:
+  - port: "{{ coredns_listen_port }}"
+    protocol: "udp"
+    source: "any"
+    comment: "CoreDNS DNS UDP"
+  - port: "{{ coredns_listen_port }}"
+    protocol: "tcp"
+    source: "any"
+    comment: "CoreDNS DNS TCP"
+  - port: "{{ coredns_metrics_port }}"
+    protocol: "tcp"
+    source: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    comment: "CoreDNS Metrics"
+  - port: "{{ coredns_health_port }}"
+    protocol: "tcp"
+    source: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    comment: "CoreDNS Health Check"
+
+# Blocklist update schedule
+coredns_blocklist_update_cron: "0 2 * * *"  # Daily at 2 AM
+
+# Performance tuning
+coredns_max_concurrent_queries: 1000
+coredns_worker_processes: "auto"

@@ -1,0 +1,239 @@
+---
+# Inventory Validation Configuration
+# Defines rules and requirements for VPN infrastructure inventory validation
+
+# Required inventory groups that must be present
+required_groups:
+  - vpn_servers
+  - wireguard_servers
+  - openvpn_servers
+  - europe
+  - north_america
+  - asia_pacific
+
+# Required host variables for all VPN servers
+required_host_vars:
+  - ansible_host
+  - server_region
+  - server_protocols
+  - server_capacity
+  - ansible_user
+  - ansible_ssh_private_key_file
+
+# Optional but recommended host variables
+recommended_host_vars:
+  - server_type
+  - cloud_provider
+  - instance_id
+  - monitoring_enabled
+  - security_hardening_enabled
+
+# Server capacity validation rules
+capacity_limits:
+  min: 10                    # Minimum connections per server
+  max: 1000                  # Maximum connections per server
+  recommended_min: 50        # Recommended minimum for production
+  recommended_max: 500       # Recommended maximum for stability
+  total_min: 1000           # Minimum total infrastructure capacity
+  total_recommended: 3000    # Recommended total capacity
+
+# IP address validation rules
+ip_ranges:
+  allowed_public:
+    - "0.0.0.0/0"            # Allow all public IPs (can be restricted)
+  
+  allowed_private:
+    - "10.0.0.0/8"           # Private Class A
+    - "172.16.0.0/12"        # Private Class B
+    - "192.168.0.0/16"       # Private Class C
+  
+  reserved_ranges:           # Ranges that should not be used
+    - "127.0.0.0/8"          # Loopback
+    - "169.254.0.0/16"       # Link-local
+    - "224.0.0.0/4"          # Multicast
+
+# VPN protocol validation
+protocols:
+  supported:
+    - wireguard
+    - openvpn
+    - amneziawg
+  
+  required:                  # At least one of these must be present
+    - wireguard
+  
+  recommended:               # Recommended protocol combinations
+    - [wireguard, openvpn]
+    - [wireguard, amneziawg]
+  
+  port_mappings:
+    wireguard: 51820
+    openvpn: 1194
+    amneziawg: 51821
+
+# Regional validation rules
+regions:
+  supported:
+    - europe
+    - north_america
+    - asia_pacific
+    - south_america
+    - africa
+    - oceania
+  
+  required:                  # Regions that must have servers
+    - europe
+    - north_america
+    - asia_pacific
+  
+  distribution_rules:
+    min_servers_per_region: 2
+    max_servers_per_region: 15
+    balance_threshold: 0.3   # Max deviation from average (30%)
+
+# Naming convention validation
+naming_conventions:
+  hostname_pattern: '^[a-z0-9-]+\.(example\.com|vpn\.local|[a-z0-9-]+\.[a-z]{2,})$'
+  group_pattern: '^[a-z_][a-z0-9_]*$'
+  
+  hostname_requirements:
+    min_length: 5
+    max_length: 63
+    allowed_chars: 'a-z0-9-.'
+    must_start_with: '[a-z0-9]'
+    must_end_with: '[a-z0-9]'
+
+# Security validation requirements
+security_requirements:
+  ssh_key_required: true
+  password_auth_disabled: true
+  root_login_disabled: true
+  firewall_required: true
+  monitoring_required: true
+  fail2ban_required: true
+  
+  required_ports:
+    - 22                     # SSH
+    - 9100                   # node_exporter
+  
+  blocked_ports:
+    - 23                     # Telnet
+    - 21                     # FTP
+    - 80                     # HTTP (should use HTTPS)
+
+# Performance and resource validation
+performance_requirements:
+  min_cpu_cores: 1
+  min_memory_mb: 1024
+  min_disk_gb: 10
+  min_bandwidth_mbps: 100
+  
+  recommended_cpu_cores: 2
+  recommended_memory_mb: 2048
+  recommended_disk_gb: 50
+  recommended_bandwidth_mbps: 1000
+
+# High availability validation
+high_availability:
+  min_servers_total: 3
+  min_servers_per_region: 2
+  max_capacity_per_server_percent: 30  # No single server should handle >30% of total capacity
+  
+  redundancy_requirements:
+    cross_region: true       # Servers must be distributed across regions
+    cross_provider: false    # Optional: distribute across cloud providers
+    protocol_redundancy: true # Each region should support multiple protocols
+
+# Monitoring and observability validation
+monitoring_requirements:
+  metrics_exporters:
+    - node_exporter
+    - wg_exporter           # For WireGuard servers
+  
+  log_shipping:
+    - promtail
+    - fluent-bit            # Optional alternative
+  
+  required_dashboards:
+    - server_health
+    - vpn_metrics
+    - security_events
+
+# Compliance and governance
+compliance_rules:
+  data_residency:
+    enforce: false          # Set to true to enforce data residency rules
+    rules: {}               # Define per-region data handling rules
+  
+  encryption_requirements:
+    in_transit: true        # All VPN traffic must be encrypted
+    at_rest: true          # Configuration and keys must be encrypted
+    key_rotation: true      # Regular key rotation required
+  
+  audit_requirements:
+    connection_logging: true
+    admin_action_logging: true
+    security_event_logging: true
+
+# Custom validation rules (advanced)
+custom_rules:
+  # Example: Ensure production servers have specific tags
+  production_server_tags:
+    enabled: false
+    required_tags:
+      - Environment
+      - Project
+      - Owner
+  
+  # Example: Validate server naming follows environment pattern
+  environment_naming:
+    enabled: false
+    pattern: '^(prod|staging|dev)-.*'
+  
+  # Example: Ensure geographic distribution
+  geographic_distribution:
+    enabled: true
+    min_continents: 2
+    max_servers_per_continent: 20
+
+# Validation severity levels
+severity_levels:
+  critical:                 # Issues that prevent operation
+    - missing_required_groups
+    - invalid_ip_addresses
+    - security_violations
+    - capacity_below_minimum
+  
+  error:                    # Issues that should be fixed
+    - missing_required_vars
+    - unsupported_protocols
+    - naming_violations
+    - performance_below_minimum
+  
+  warning:                  # Issues that should be reviewed
+    - missing_recommended_vars
+    - capacity_above_recommended
+    - unbalanced_distribution
+    - deprecated_configurations
+  
+  info:                     # Informational messages
+    - optimization_suggestions
+    - best_practice_recommendations
+
+# Reporting configuration
+reporting:
+  include_passed_checks: true
+  include_recommendations: true
+  group_by_severity: true
+  show_statistics: true
+  
+  output_formats:
+    - text
+    - json
+    - yaml
+    - html                  # Future enhancement
+  
+  export_options:
+    include_raw_data: false
+    include_config: true
+    include_timestamp: true

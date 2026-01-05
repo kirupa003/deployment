@@ -1,0 +1,68 @@
+---
+# AmneziaWG Key Management
+
+- name: Check if server private key exists
+  stat:
+    path: "{{ amneziawg_keys_dir }}/server_private.key"
+  register: server_private_key_stat
+
+- name: Generate server private key
+  shell: "{{ _awg_binary }} genkey"
+  register: server_private_key_gen
+  when: not server_private_key_stat.stat.exists
+  no_log: true
+
+- name: Save server private key
+  copy:
+    content: "{{ server_private_key_gen.stdout }}"
+    dest: "{{ amneziawg_keys_dir }}/server_private.key"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: not server_private_key_stat.stat.exists
+  no_log: true
+
+- name: Read server private key
+  slurp:
+    src: "{{ amneziawg_keys_dir }}/server_private.key"
+  register: server_private_key_content
+  no_log: true
+
+- name: Generate server public key
+  shell: echo "{{ server_private_key_content.content | b64decode | trim }}" | {{ _awg_binary }} pubkey
+  register: server_public_key_gen
+  changed_when: false
+  no_log: true
+
+- name: Save server public key
+  copy:
+    content: "{{ server_public_key_gen.stdout }}"
+    dest: "{{ amneziawg_keys_dir }}/server_public.key"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Set server key facts
+  set_fact:
+    amneziawg_server_private_key: "{{ server_private_key_content.content | b64decode | trim }}"
+    amneziawg_server_public_key: "{{ server_public_key_gen.stdout }}"
+  no_log: true
+
+- name: Generate preshared key for additional security
+  shell: "{{ _awg_binary }} genpsk"
+  register: preshared_key_gen
+  when: amneziawg_use_preshared_key | default(false)
+  no_log: true
+
+- name: Save preshared key
+  copy:
+    content: "{{ preshared_key_gen.stdout }}"
+    dest: "{{ amneziawg_keys_dir }}/preshared.key"
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+  when: amneziawg_use_preshared_key | default(false)
+  no_log: true

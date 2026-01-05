@@ -1,0 +1,263 @@
+---
+# Dynamic Inventory Configuration for VPN Infrastructure
+# This file configures how the dynamic inventory script discovers and organizes VPN servers
+
+providers:
+  aws:
+    enabled: true
+    regions:
+      - us-east-1      # North America East
+      - us-west-2      # North America West
+      - eu-west-1      # Europe (Ireland)
+      - eu-central-1   # Europe (Frankfurt)
+      - ap-southeast-1 # Asia Pacific (Singapore)
+      - ap-northeast-1 # Asia Pacific (Tokyo)
+    
+    # Tags used to identify VPN infrastructure instances
+    tag_filters:
+      VPN-Infrastructure: "true"
+      Environment: "production"
+      Project: "vpn-infrastructure"
+    
+    # Additional AWS-specific configuration
+    profile: default  # AWS CLI profile to use
+    
+  gcp:
+    enabled: false
+    project_id: ""
+    zones:
+      - us-central1-a
+      - europe-west1-b
+      - asia-southeast1-a
+    
+    # Labels used to identify VPN instances
+    label_filters:
+      vpn-infrastructure: "true"
+      environment: "production"
+  
+  azure:
+    enabled: false
+    subscription_id: ""
+    resource_groups:
+      - vpn-infrastructure-rg
+    
+    # Tags used to identify VPN instances
+    tag_filters:
+      VPN-Infrastructure: "true"
+      Environment: "production"
+  
+  hetzner:
+    enabled: false
+    api_token: ""  # Set via environment variable HETZNER_TOKEN
+    
+    # Labels used to identify VPN instances
+    label_filters:
+      vpn-infrastructure: "true"
+      environment: "production"
+
+# Inventory grouping configuration
+grouping:
+  by_region: true      # Group servers by geographic region
+  by_protocol: true    # Group servers by VPN protocol support
+  by_capacity: true    # Group servers by connection capacity tier
+  by_provider: true    # Group servers by cloud provider
+  by_type: true        # Group servers by server type (standard, high-performance, etc.)
+
+# Default host variables applied to all discovered hosts
+host_vars:
+  ansible_user: ubuntu
+  ansible_ssh_private_key_file: ~/.ssh/vpn-infrastructure
+  ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30"
+  ansible_python_interpreter: /usr/bin/python3
+  
+  # VPN Infrastructure specific variables
+  vpn_infrastructure_managed: true
+  monitoring_enabled: true
+  security_hardening_enabled: true
+  backup_enabled: true
+
+# Region mapping for standardized group names
+region_mapping:
+  # AWS regions
+  us-east-1: north_america
+  us-east-2: north_america
+  us-west-1: north_america
+  us-west-2: north_america
+  ca-central-1: north_america
+  
+  eu-west-1: europe
+  eu-west-2: europe
+  eu-west-3: europe
+  eu-central-1: europe
+  eu-north-1: europe
+  eu-south-1: europe
+  
+  ap-southeast-1: asia_pacific
+  ap-southeast-2: asia_pacific
+  ap-northeast-1: asia_pacific
+  ap-northeast-2: asia_pacific
+  ap-northeast-3: asia_pacific
+  ap-south-1: asia_pacific
+  ap-east-1: asia_pacific
+  
+  sa-east-1: south_america
+  
+  # GCP regions
+  us-central1: north_america
+  us-east1: north_america
+  us-east4: north_america
+  us-west1: north_america
+  us-west2: north_america
+  us-west3: north_america
+  us-west4: north_america
+  
+  europe-west1: europe
+  europe-west2: europe
+  europe-west3: europe
+  europe-west4: europe
+  europe-west6: europe
+  europe-north1: europe
+  europe-central2: europe
+  
+  asia-east1: asia_pacific
+  asia-east2: asia_pacific
+  asia-northeast1: asia_pacific
+  asia-northeast2: asia_pacific
+  asia-northeast3: asia_pacific
+  asia-south1: asia_pacific
+  asia-southeast1: asia_pacific
+  asia-southeast2: asia_pacific
+  
+  # Azure regions
+  eastus: north_america
+  eastus2: north_america
+  westus: north_america
+  westus2: north_america
+  centralus: north_america
+  
+  westeurope: europe
+  northeurope: europe
+  uksouth: europe
+  ukwest: europe
+  francecentral: europe
+  germanywestcentral: europe
+  
+  southeastasia: asia_pacific
+  eastasia: asia_pacific
+  japaneast: asia_pacific
+  japanwest: asia_pacific
+  australiaeast: asia_pacific
+  australiasoutheast: asia_pacific
+
+# Capacity tier definitions
+capacity_tiers:
+  small:
+    min: 1
+    max: 50
+    description: "Small capacity servers (1-50 connections)"
+  
+  medium:
+    min: 51
+    max: 100
+    description: "Medium capacity servers (51-100 connections)"
+  
+  large:
+    min: 101
+    max: 200
+    description: "Large capacity servers (101-200 connections)"
+  
+  xlarge:
+    min: 201
+    max: 500
+    description: "Extra large capacity servers (201-500 connections)"
+  
+  xxlarge:
+    min: 501
+    max: 1000
+    description: "Extra extra large capacity servers (501-1000 connections)"
+
+# Group-specific variables
+group_vars:
+  vpn_servers:
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    vpn_infrastructure: true
+    monitoring_enabled: true
+    security_hardening: true
+    log_shipping_enabled: true
+  
+  wireguard_servers:
+    wireguard_port: 51820
+    wireguard_dashboard_port: 10086
+    wireguard_interface: wg0
+    wireguard_mtu: 1420
+  
+  openvpn_servers:
+    openvpn_port: 1194
+    openvpn_protocol: udp
+    openvpn_cipher: AES-256-GCM
+    openvpn_auth: SHA256
+  
+  amneziawg_servers:
+    amneziawg_port: 51821
+    amneziawg_interface: awg0
+    amneziawg_obfuscation: true
+  
+  # Regional group variables
+  europe:
+    ntp_servers:
+      - 0.europe.pool.ntp.org
+      - 1.europe.pool.ntp.org
+      - 2.europe.pool.ntp.org
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
+      - 9.9.9.9
+    timezone: Europe/London
+    locale: en_GB.UTF-8
+  
+  north_america:
+    ntp_servers:
+      - 0.north-america.pool.ntp.org
+      - 1.north-america.pool.ntp.org
+      - 2.north-america.pool.ntp.org
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
+      - 208.67.222.222
+    timezone: America/New_York
+    locale: en_US.UTF-8
+  
+  asia_pacific:
+    ntp_servers:
+      - 0.asia.pool.ntp.org
+      - 1.asia.pool.ntp.org
+      - 2.asia.pool.ntp.org
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
+      - 208.67.220.220
+    timezone: Asia/Singapore
+    locale: en_SG.UTF-8
+  
+  south_america:
+    ntp_servers:
+      - 0.south-america.pool.ntp.org
+      - 1.south-america.pool.ntp.org
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
+    timezone: America/Sao_Paulo
+    locale: pt_BR.UTF-8
+
+# Cache configuration for performance
+cache:
+  enabled: true
+  ttl: 300  # Cache TTL in seconds (5 minutes)
+  file: /tmp/vpn-inventory-cache.json
+
+# Logging configuration
+logging:
+  level: INFO
+  file: /var/log/vpn-inventory.log
+  max_size: 10MB
+  backup_count: 5

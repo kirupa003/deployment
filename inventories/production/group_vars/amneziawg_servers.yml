@@ -1,0 +1,58 @@
+---
+# AmneziaWG servers configuration
+# Obfuscated WireGuard for censorship circumvention
+
+# AmneziaWG specific settings
+amneziawg:
+  enabled: true
+  interface: "awg0"
+  listen_port: 51821
+  private_key_path: "/etc/amneziawg/private.key"
+  public_key_path: "/etc/amneziawg/public.key"
+  config_path: "/etc/amneziawg/awg0.conf"
+  
+  # Obfuscation settings
+  obfuscation:
+    enabled: true
+    junk_packet_count: 3
+    junk_packet_min_size: 50
+    junk_packet_max_size: 1000
+    init_packet_junk_size: 200
+    response_packet_junk_size: 200
+    init_packet_magic_header: 4
+    response_packet_magic_header: 4
+    underload_packet_magic_header: 8
+    transport_packet_magic_header: 16
+    
+  # Network configuration
+  network:
+    address: "10.10.0.1/24"
+    subnet: "10.10.0.0/24"
+    
+  # Client configuration
+  clients:
+    max_clients: 300
+    client_subnet: "10.10.0.0/24"
+    client_dns: "{{ ansible_default_ipv4.address }}"
+    
+  # Security settings
+  security:
+    preshared_key: true
+    endpoint_randomization: true
+    anti_censorship: true
+    
+# Dashboard integration (shared with WireGuard)
+dashboard:
+  amneziawg_support: true
+  aconf_path: "/opt/wg-dashboard/aconf"
+  
+# Firewall rules specific to AmneziaWG
+firewall_rules:
+  - { rule: 'allow', port: '{{ amneziawg.listen_port }}', proto: 'udp' }
+  
+# Regional optimization
+regional_settings:
+  # Optimized for high-censorship regions
+  connection_retry_count: 5
+  connection_timeout: 60
+  keepalive_interval: 15

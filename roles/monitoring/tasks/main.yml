@@ -1,0 +1,32 @@
+---
+- name: Include dashboard provisioning tasks
+  include_tasks: dashboards.yml
+  tags:
+    - monitoring
+    - dashboards
+
+- name: Include data source provisioning tasks
+  include_tasks: datasources.yml
+  tags:
+    - monitoring
+    - datasources
+
+- name: Include alert rules tasks
+  include_tasks: alerts.yml
+  when: monitoring_alerts_enabled
+  tags:
+    - monitoring
+    - alerts
+
+- name: Include notification channels tasks
+  include_tasks: notifications.yml
+  when: monitoring_alerts_enabled
+  tags:
+    - monitoring
+    - notifications
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags:
+    - monitoring
+    - validate

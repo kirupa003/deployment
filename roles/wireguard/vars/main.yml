@@ -1,0 +1,29 @@
+---
+# WireGuard Role Variables
+
+# OS-specific package names
+_wireguard_packages:
+  Ubuntu:
+    - wireguard
+    - wireguard-tools
+    - qrencode
+    - iptables-persistent
+    - resolvconf
+  Debian:
+    - wireguard
+    - wireguard-tools
+    - qrencode
+    - iptables-persistent
+    - resolvconf
+
+# Service names by OS
+_wireguard_service_name:
+  Ubuntu: "wg-quick@{{ wireguard_interface }}"
+  Debian: "wg-quick@{{ wireguard_interface }}"
+
+# Configuration paths
+_wireguard_config_path: "/etc/wireguard/{{ wireguard_interface }}.conf"
+_wireguard_systemd_path: "/etc/systemd/system/wg-quick@{{ wireguard_interface }}.service.d"
+
+# Docker compose file path
+_docker_compose_file: "{{ wg_dashboard_data_dir }}/docker-compose.yml"

@@ -1,0 +1,56 @@
+---
+# Update CrowdSec collections and scenarios
+# Usage: ansible-playbook playbooks/security/update-crowdsec.yml
+
+- name: Update CrowdSec Security Rules
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  serial: 50
+
+  tasks:
+    - name: Update CrowdSec hub
+      ansible.builtin.command:
+        cmd: cscli hub update
+      register: hub_update
+      changed_when: "'updated' in hub_update.stdout"
+      tags: [crowdsec, hub]
+
+    - name: Upgrade CrowdSec collections
+      ansible.builtin.command:
+        cmd: cscli collections upgrade --all
+      register: collections_upgrade
+      changed_when: "'upgraded' in collections_upgrade.stdout"
+      tags: [crowdsec, collections]
+
+    - name: Upgrade CrowdSec parsers
+      ansible.builtin.command:
+        cmd: cscli parsers upgrade --all
+      register: parsers_upgrade
+      changed_when: "'upgraded' in parsers_upgrade.stdout"
+      tags: [crowdsec, parsers]
+
+    - name: Upgrade CrowdSec scenarios
+      ansible.builtin.command:
+        cmd: cscli scenarios upgrade --all
+      register: scenarios_upgrade
+      changed_when: "'upgraded' in scenarios_upgrade.stdout"
+      tags: [crowdsec, scenarios]
+
+    - name: Reload CrowdSec
+      ansible.builtin.systemd:
+        name: crowdsec
+        state: reloaded
+      when: >
+        hub_update.changed or
+        collections_upgrade.changed or
+        parsers_upgrade.changed or
+        scenarios_upgrade.changed
+      tags: [crowdsec, reload]
+
+    - name: Verify CrowdSec status
+      ansible.builtin.command:
+        cmd: cscli metrics
+      register: crowdsec_metrics
+      changed_when: false
+      tags: [crowdsec, verify]

@@ -1,0 +1,112 @@
+# Ansible
+*.retry
+.vault_password
+.vault_password_*
+.vault_pass
+*.vault
+logs/
+/tmp/
+ansible.log
+ansible-production.log
+ansible-staging.log
+
+# PKI and Certificates - Never commit unencrypted keys
+files/pki/
+files/certs/*.key
+files/certs/*.pem
+!files/certs/.gitkeep
+
+# SSH Keys - Never commit private keys
+files/ssh/*_rsa
+files/ssh/*_ed25519
+files/ssh/*.key
+files/ssh/*.pem
+id_rsa*
+id_ed25519*
+!files/ssh/.gitkeep
+
+# Secrets and sensitive files
+inventories/*/group_vars/*/vault.yml
+inventories/*/host_vars/*/vault.yml
+secrets/
+.env
+*.secret
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.kiro/
+.kiro
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Terraform (if used for infrastructure)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+
+# Temporary files and caches
+/tmp/ansible_fact_cache/
+/tmp/ansible_facts_cache/
+/tmp/.ansible-cp/
+*.tmp
+*.bak
+*.backup
+
+# Collections and roles cache
+collections/
+.ansible/
+galaxy_cache/
+
+# Requirements backup (keep original requirements files)
+!requirements*.yml
+
+# Monitoring and metrics data
+monitoring/data/
+grafana/data/
+prometheus/data/
+victoriametrics/data/
+
+# Backup files
+backups/
+*.backup
+*.bak
+*.old
+
+# Lock files
+*.lock

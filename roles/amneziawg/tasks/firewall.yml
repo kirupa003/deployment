@@ -1,0 +1,54 @@
+---
+# AmneziaWG Firewall Configuration
+
+- name: Install UFW firewall
+  apt:
+    name: ufw
+    state: present
+  become: true
+
+- name: Allow SSH access
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+  become: true
+
+- name: Allow AmneziaWG port
+  ufw:
+    rule: allow
+    port: "{{ amneziawg_port }}"
+    proto: udp
+  become: true
+
+- name: Configure NAT rules for AmneziaWG
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - AmneziaWG NAT"
+    insertbefore: "# Don't delete these required lines"
+    block: |
+      # NAT table rules for AmneziaWG
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      # Allow traffic from AmneziaWG clients to the internet
+      -A POSTROUTING -s {{ amneziawg_network }} -o {{ amneziawg_forward_interface }} -j MASQUERADE
+      COMMIT
+  become: true
+  notify: restart ufw
+
+- name: Configure forwarding rules
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - AmneziaWG Forward"
+    insertafter: "# End required lines"
+    block: |
+      # Allow forwarding for AmneziaWG
+      -A ufw-before-forward -s {{ amneziawg_network }} -j ACCEPT
+      -A ufw-before-forward -d {{ amneziawg_network }} -j ACCEPT
+  become: true
+  notify: restart ufw
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  become: true

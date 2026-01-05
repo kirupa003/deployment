@@ -1,0 +1,30 @@
+---
+- name: restart ssh
+  systemd:
+    name: "{{ ssh_service_name }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload ssh
+  systemd:
+    name: "{{ ssh_service_name }}"
+    state: reloaded
+  become: true
+
+- name: start ssh
+  systemd:
+    name: "{{ ssh_service_name }}"
+    state: started
+    enabled: true
+  become: true
+
+- name: stop ssh
+  systemd:
+    name: "{{ ssh_service_name }}"
+    state: stopped
+  become: true
+
+- name: regenerate ssh host keys
+  command: "ssh-keygen -A"
+  become: true

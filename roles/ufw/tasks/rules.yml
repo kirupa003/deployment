@@ -1,0 +1,158 @@
+---
+- name: Configure UFW firewall rules
+  block:
+    - name: Allow trusted networks
+      ufw:
+        rule: allow
+        src: "{{ item }}"
+        comment: "Trusted network"
+      become: true
+      loop: "{{ ufw_trusted_networks }}"
+
+    - name: Deny blocked networks
+      ufw:
+        rule: deny
+        src: "{{ item }}"
+        comment: "Blocked network"
+      become: true
+      loop: "{{ ufw_blocked_networks }}"
+
+    - name: Configure SSH access
+      ufw:
+        rule: "{{ ufw_ssh_rule }}"
+        port: "{{ ufw_ssh_port }}"
+        proto: tcp
+        src: "{{ ufw_ssh_src if ufw_ssh_src != 'any' else omit }}"
+        comment: "SSH access"
+      become: true
+
+    - name: Configure SSH rate limiting
+      ufw:
+        rule: limit
+        port: "{{ ufw_ssh_port }}"
+        proto: tcp
+        comment: "SSH rate limiting"
+      become: true
+      when: ufw_rate_limit_enabled and ufw_rate_limit_ssh
+
+    - name: Configure OpenVPN access
+      ufw:
+        rule: allow
+        port: "{{ ufw_openvpn_port }}"
+        proto: "{{ ufw_openvpn_proto }}"
+        comment: "OpenVPN server"
+      become: true
+      when: ufw_openvpn_enabled
+
+    - name: Configure WireGuard access
+      ufw:
+        rule: allow
+        port: "{{ ufw_wireguard_port }}"
+        proto: "{{ ufw_wireguard_proto }}"
+        comment: "WireGuard server"
+      become: true
+      when: ufw_wireguard_enabled
+
+    - name: Configure AmneziaWG access
+      ufw:
+        rule: allow
+        port: "{{ ufw_amneziawg_port }}"
+        proto: "{{ ufw_amneziawg_proto }}"
+        comment: "AmneziaWG server"
+      become: true
+      when: ufw_amneziawg_enabled
+
+    - name: Configure Node Exporter access
+      ufw:
+        rule: allow
+        port: "{{ ufw_node_exporter_port }}"
+        proto: tcp
+        src: "{{ item }}"
+        comment: "Node Exporter monitoring"
+      become: true
+      loop: "{{ ufw_node_exporter_src }}"
+      when: ufw_node_exporter_enabled
+
+    - name: Configure WireGuard Exporter access
+      ufw:
+        rule: allow
+        port: "{{ ufw_wg_exporter_port }}"
+        proto: tcp
+        src: "{{ item }}"
+        comment: "WireGuard Exporter monitoring"
+      become: true
+      loop: "{{ ufw_wg_exporter_src }}"
+      when: ufw_wg_exporter_enabled
+
+    - name: Configure DNS access
+      ufw:
+        rule: allow
+        port: "{{ ufw_dns_port }}"
+        proto: "{{ item }}"
+        comment: "DNS service"
+      become: true
+      loop:
+        - tcp
+        - udp
+      when: ufw_dns_enabled
+
+    - name: Configure NTP access
+      ufw:
+        rule: allow
+        port: "{{ ufw_ntp_port }}"
+        proto: udp
+        comment: "NTP service"
+      become: true
+      when: ufw_ntp_enabled
+
+    - name: Configure HTTP access
+      ufw:
+        rule: allow
+        port: "{{ ufw_http_port }}"
+        proto: tcp
+        comment: "HTTP service"
+      become: true
+      when: ufw_http_enabled
+
+    - name: Configure HTTPS access
+      ufw:
+        rule: allow
+        port: "{{ ufw_https_port }}"
+        proto: tcp
+        comment: "HTTPS service"
+      become: true
+      when: ufw_https_enabled
+
+    - name: Configure custom rules
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port | default(omit) }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        src: "{{ item.src | default(omit) }}"
+        dest: "{{ item.dest | default(omit) }}"
+        interface: "{{ item.interface | default(omit) }}"
+        direction: "{{ item.direction | default(omit) }}"
+        comment: "{{ item.comment | default('Custom rule') }}"
+      become: true
+      loop: "{{ ufw_rules }}"
+
+    - name: Configure application profiles
+      ufw:
+        rule: "{{ item.rule }}"
+        name: "{{ item.name }}"
+        comment: "Application profile: {{ item.name }}"
+      become: true
+      loop: "{{ ufw_applications }}"
+
+    - name: Configure interface-specific rules
+      ufw:
+        rule: "{{ item.rule }}"
+        interface: "{{ item.interface }}"
+        direction: "{{ item.direction }}"
+        comment: "Interface rule: {{ item.interface }}"
+      become: true
+      loop: "{{ ufw_interface_rules }}"
+
+  tags:
+    - ufw
+    - rules

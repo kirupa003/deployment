@@ -1,0 +1,441 @@
+---
+# Multi-Protocol VPN Deployment Playbook
+# Servers supporting multiple VPN types (WireGuard + OpenVPN)
+# Requirements: 4.1, 1.2
+
+- name: Deploy Multi-Protocol VPN Infrastructure
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ batch_size | default(3) }}"
+  
+  vars:
+    deployment_timestamp: "{{ ansible_date_time.epoch }}"
+    deployment_id: "multi-deploy-{{ deployment_timestamp }}"
+    
+  pre_tasks:
+    - name: Validate deployment prerequisites
+      block:
+        - name: Check system requirements
+          assert:
+            that:
+              - ansible_distribution in ['Ubuntu', 'Debian']
+              - ansible_distribution_major_version | int >= 18
+              - ansible_memtotal_mb >= 2048
+              - ansible_processor_vcpus >= 2
+            fail_msg: "Insufficient system resources for multi-protocol deployment"
+            
+        - name: Verify network configuration
+          assert:
+            that:
+              - ansible_default_ipv4.address is defined
+              - ansible_default_ipv4.gateway is defined
+            fail_msg: "Network configuration incomplete"
+            
+        - name: Check port availability
+          wait_for:
+            port: "{{ item }}"
+            host: "{{ ansible_default_ipv4.address }}"
+            state: stopped
+            timeout: 5
+          loop:
+            - 51820  # WireGuard
+            - 1194   # OpenVPN UDP
+            - 443    # OpenVPN TCP
+            - 10086  # WireGuard Dashboard
+          ignore_errors: yes
+          register: port_availability
+          
+        - name: Validate storage requirements
+          assert:
+            that:
+              - ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first > 5368709120
+            fail_msg: "Insufficient disk space (minimum 5GB required for multi-protocol)"
+            
+    - name: Create deployment log entry
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting multi-protocol deployment {{ deployment_id }} on {{ inventory_hostname }}"
+        create: yes
+      delegate_to: localhost
+      run_once: true
+      
+    - name: Set protocol-specific variables
+      set_fact:
+        deploy_wireguard: "{{ inventory_hostname in groups['wireguard_servers'] }}"
+        deploy_openvpn: "{{ inventory_hostname in groups['openvpn_servers'] }}"
+        deploy_amneziawg: "{{ amneziawg_enabled | default(false) }}"
+
+  roles:
+    # Security foundation (applied to all servers)
+    - role: ssh_hardening
+      tags: ['security', 'ssh']
+      
+    - role: ufw
+      tags: ['security', 'firewall']
+      vars:
+        ufw_rules: "{{ ufw_rules | default([]) + wireguard_firewall_rules | default([]) + openvpn_firewall_rules | default([]) }}"
+      
+    - role: fail2ban
+      tags: ['security', 'intrusion-prevention']
+      vars:
+        fail2ban_jails: "{{ fail2ban_jails | default([]) + (['wireguard'] if deploy_wireguard else []) + (['openvpn'] if deploy_openvpn else []) }}"
+      
+    - role: crowdsec
+      tags: ['security', 'threat-intelligence']
+      
+    # VPN protocols (conditional deployment)
+    - role: wireguard
+      when: deploy_wireguard
+      tags: ['vpn', 'wireguard']
+      
+    - role: amneziawg
+      when: deploy_wireguard and deploy_amneziawg
+      tags: ['vpn', 'amneziawg']
+      
+    - role: openvpn
+      when: deploy_openvpn
+      tags: ['vpn', 'openvpn']
+      
+    # Monitoring stack (applied to all servers)
+    - role: node_exporter
+      tags: ['monitoring', 'metrics']
+      
+    - role: wg_exporter
+      when: deploy_wireguard
+      tags: ['monitoring', 'wireguard-metrics']
+      
+    - role: promtail
+      tags: ['monitoring', 'logs']
+      
+    - role: fluent_bit
+      tags: ['monitoring', 'dns-logs']
+      
+    # DNS and networking
+    - role: coredns
+      tags: ['dns', 'adblock']
+
+  post_tasks:
+    - name: Verify WireGuard deployment
+      block:
+        - name: Check WireGuard service
+          systemd:
+            name: "wg-quick@{{ wireguard_interface }}"
+            state: started
+            enabled: yes
+          register: wg_service_status
+          
+        - name: Verify WireGuard interface
+          command: wg show {{ wireguard_interface }}
+          register: wg_interface_status
+          changed_when: false
+          
+        - name: Test WireGuard Dashboard
+          uri:
+            url: "http://{{ ansible_default_ipv4.address }}:{{ wg_dashboard_port }}"
+            method: GET
+            status_code: 200
+            timeout: 30
+          when: wg_dashboard_enabled | default(true)
+          register: wg_dashboard_status
+          
+      when: deploy_wireguard
+      
+    - name: Verify OpenVPN deployment
+      block:
+        - name: Check OpenVPN service
+          systemd:
+            name: openvpn@server
+            state: started
+            enabled: yes
+          register: ovpn_service_status
+          
+        - name: Verify OpenVPN interface
+          command: ip addr show tun0
+          register: ovpn_interface_status
+          changed_when: false
+          
+        - name: Test OpenVPN ports
+          wait_for:
+            port: "{{ item }}"
+            host: "{{ ansible_default_ipv4.address }}"
+            state: started
+            timeout: 10
+          loop:
+            - "{{ openvpn_port_udp }}"
+            - "{{ openvpn_port_tcp }}"
+          register: ovpn_port_status
+          
+      when: deploy_openvpn
+      
+    - name: Verify monitoring services
+      block:
+        - name: Check monitoring endpoints
+          uri:
+            url: "http://{{ ansible_default_ipv4.address }}:{{ item }}/metrics"
+            method: GET
+            status_code: 200
+            timeout: 10
+          loop:
+            - "{{ node_exporter_port }}"
+            - "{{ wg_exporter_port if deploy_wireguard else omit }}"
+          register: monitoring_status
+          when: item != omit
+          
+        - name: Verify log shipping
+          systemd:
+            name: promtail
+            state: started
+            enabled: yes
+          register: promtail_status
+          
+        - name: Check DNS service
+          systemd:
+            name: coredns
+            state: started
+            enabled: yes
+          register: coredns_status
+          
+    - name: Network connectivity tests
+      block:
+        - name: Test DNS resolution
+          command: nslookup google.com {{ ansible_default_ipv4.address }}
+          register: dns_test
+          changed_when: false
+          
+        - name: Test internet connectivity
+          uri:
+            url: https://www.google.com
+            method: HEAD
+            timeout: 10
+          register: internet_test
+          
+        - name: Verify routing tables
+          command: ip route show
+          register: routing_status
+          changed_when: false
+          
+    - name: Generate comprehensive deployment report
+      template:
+        src: multi-protocol-deployment-report.j2
+        dest: "/tmp/multi-protocol-deployment-{{ deployment_id }}-{{ inventory_hostname }}.txt"
+      vars:
+        deployment_type: "Multi-Protocol VPN (WireGuard + OpenVPN)"
+        protocols_deployed:
+          - name: "WireGuard"
+            enabled: "{{ deploy_wireguard }}"
+            status: "{{ wg_service_status.state if deploy_wireguard else 'N/A' }}"
+            dashboard: "{{ 'active' if (deploy_wireguard and wg_dashboard_status.status == 200) else 'N/A' }}"
+          - name: "OpenVPN"
+            enabled: "{{ deploy_openvpn }}"
+            status: "{{ ovpn_service_status.state if deploy_openvpn else 'N/A' }}"
+            ports: "{{ 'UDP:' + openvpn_port_udp|string + ' TCP:' + openvpn_port_tcp|string if deploy_openvpn else 'N/A' }}"
+          - name: "AmneziaWG"
+            enabled: "{{ deploy_amneziawg }}"
+            status: "{{ 'configured' if deploy_amneziawg else 'N/A' }}"
+        services_deployed:
+          - SSH Hardening
+          - UFW Firewall
+          - Fail2Ban
+          - CrowdSec
+          - Node Exporter
+          - Promtail
+          - Fluent Bit
+          - CoreDNS
+        monitoring_status:
+          node_exporter: "{{ 'active' if monitoring_status is succeeded else 'failed' }}"
+          promtail: "{{ promtail_status.state }}"
+          coredns: "{{ coredns_status.state }}"
+        network_tests:
+          dns_resolution: "{{ 'passed' if dns_test.rc == 0 else 'failed' }}"
+          internet_connectivity: "{{ 'passed' if internet_test.status == 200 else 'failed' }}"
+          
+    - name: Update deployment log with completion
+      lineinfile:
+        path: /var/log/ansible-deployments.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed multi-protocol deployment {{ deployment_id }} on {{ inventory_hostname }} - WG:{{ 'OK' if (deploy_wireguard and wg_service_status.state == 'started') else 'N/A' }} OVPN:{{ 'OK' if (deploy_openvpn and ovpn_service_status.state == 'started') else 'N/A' }}"
+      delegate_to: localhost
+
+  handlers:
+    - name: restart wireguard
+      systemd:
+        name: "wg-quick@{{ wireguard_interface }}"
+        state: restarted
+      when: deploy_wireguard
+        
+    - name: restart openvpn
+      systemd:
+        name: openvpn@server
+        state: restarted
+      when: deploy_openvpn
+        
+    - name: restart monitoring
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - node_exporter
+        - promtail
+        
+    - name: restart dns
+      systemd:
+        name: coredns
+        state: restarted
+
+# Cross-protocol integration and validation
+- name: Cross-Protocol Integration Tests
+  hosts: vpn_servers
+  become: yes
+  gather_facts: no
+  serial: 1
+  
+  tasks:
+    - name: Multi-protocol integration validation
+      block:
+        - name: Check for port conflicts
+          shell: |
+            netstat -tuln | grep -E ':(51820|1194|443|10086)\s'
+          register: port_usage
+          changed_when: false
+          
+        - name: Verify firewall rules integration
+          command: ufw status numbered
+          register: firewall_rules
+          changed_when: false
+          
+        - name: Test protocol isolation
+          block:
+            - name: Check WireGuard network isolation
+              command: ip route show table {{ wireguard_interface }}
+              register: wg_routes
+              when: deploy_wireguard
+              changed_when: false
+              
+            - name: Check OpenVPN network isolation
+              command: ip route show | grep tun0
+              register: ovpn_routes
+              when: deploy_openvpn
+              changed_when: false
+              
+        - name: Validate DNS configuration for all protocols
+          block:
+            - name: Test DNS from WireGuard network
+              command: dig @{{ wireguard_dns }} google.com
+              register: wg_dns_test
+              when: deploy_wireguard
+              changed_when: false
+              
+            - name: Test DNS from OpenVPN network
+              command: dig @{{ openvpn_dns_servers[0] }} google.com
+              register: ovpn_dns_test
+              when: deploy_openvpn
+              changed_when: false
+              
+        - name: Performance baseline tests
+          block:
+            - name: CPU usage check
+              shell: top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1
+              register: cpu_usage
+              changed_when: false
+              
+            - name: Memory usage check
+              shell: free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}'
+              register: memory_usage
+              changed_when: false
+              
+            - name: Network interface statistics
+              command: cat /proc/net/dev
+              register: network_stats
+              changed_when: false
+              
+      rescue:
+        - name: Log integration test failure
+          lineinfile:
+            path: /var/log/ansible-deployments.log
+            line: "{{ ansible_date_time.iso8601 }} - Integration test FAILURE on {{ inventory_hostname }} - Multi-protocol conflicts detected"
+          delegate_to: localhost
+          
+        - name: Generate conflict resolution report
+          template:
+            src: conflict-resolution-report.j2
+            dest: "/tmp/multi-protocol-conflicts-{{ deployment_id }}-{{ inventory_hostname }}.txt"
+          vars:
+            port_conflicts: "{{ port_usage.stdout_lines }}"
+            firewall_status: "{{ firewall_rules.stdout_lines }}"
+            
+        - name: Notify engineering team
+          mail:
+            to: "{{ engineering_email | default('engineering@example.com') }}"
+            subject: "Multi-Protocol Integration Issues - {{ inventory_hostname }}"
+            body: |
+              Multi-protocol VPN deployment has integration issues on {{ inventory_hostname }}.
+              
+              Deployment ID: {{ deployment_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Conflict report: /tmp/multi-protocol-conflicts-{{ deployment_id }}-{{ inventory_hostname }}.txt
+              
+              Please review and resolve conflicts.
+          delegate_to: localhost
+          when: notify_on_failure | default(true)
+
+# Performance optimization for multi-protocol setup
+- name: Multi-Protocol Performance Optimization
+  hosts: vpn_servers
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: Optimize system for multi-protocol load
+      block:
+        - name: Adjust kernel parameters for VPN performance
+          sysctl:
+            name: "{{ item.name }}"
+            value: "{{ item.value }}"
+            state: present
+            reload: yes
+          loop:
+            - { name: 'net.core.rmem_max', value: '134217728' }
+            - { name: 'net.core.wmem_max', value: '134217728' }
+            - { name: 'net.ipv4.udp_rmem_min', value: '8192' }
+            - { name: 'net.ipv4.udp_wmem_min', value: '8192' }
+            - { name: 'net.core.netdev_max_backlog', value: '5000' }
+            - { name: 'net.ipv4.ip_forward', value: '1' }
+            
+        - name: Configure CPU affinity for VPN processes
+          lineinfile:
+            path: /etc/systemd/system/{{ item }}.service.d/override.conf
+            line: "CPUAffinity={{ ansible_processor_vcpus | int // 2 }}-{{ ansible_processor_vcpus | int - 1 }}"
+            create: yes
+          loop:
+            - "wg-quick@{{ wireguard_interface }}"
+            - "openvpn@server"
+          when: ansible_processor_vcpus | int > 2
+          notify: reload systemd
+          
+        - name: Set process priorities
+          lineinfile:
+            path: /etc/security/limits.conf
+            line: "{{ item }}"
+          loop:
+            - "root soft priority -10"
+            - "root hard priority -10"
+            - "openvpn soft priority -5"
+            - "openvpn hard priority -5"
+            
+    - name: Configure monitoring for multi-protocol performance
+      template:
+        src: multi-protocol-monitoring.conf.j2
+        dest: /etc/node_exporter/multi-protocol-collector.conf
+        mode: '0644'
+      notify: restart node_exporter
+      
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+        
+    - name: restart node_exporter
+      systemd:
+        name: node_exporter
+        state: restarted

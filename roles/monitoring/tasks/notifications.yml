@@ -1,0 +1,80 @@
+---
+- name: Create notification channels directory
+  file:
+    path: "{{ monitoring_provisioning_dir }}/notifiers"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: '0755'
+  become: true
+
+- name: Generate notification channels configuration
+  template:
+    src: notification-channels.yml.j2
+    dest: "{{ monitoring_provisioning_dir }}/notifiers/vpn-notifications.yml"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+  notify: reload grafana
+
+- name: Configure Slack notification channel via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/alert-notifications"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "VPN Alerts Slack"
+      type: "slack"
+      settings:
+        url: "{{ monitoring_slack_webhook_url }}"
+        channel: "{{ monitoring_slack_channel }}"
+        title: "VPN Infrastructure Alert"
+        text: "{{ '{{' }} range .Alerts {{ '}}' }}{{ '{{' }} .Annotations.summary {{ '}}' }}{{ '{{' }} end {{ '}}' }}"
+    status_code: [200, 409]
+  when: 
+    - monitoring_grafana_api_key != ""
+    - monitoring_slack_webhook_url != ""
+
+- name: Configure PagerDuty notification channel via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/alert-notifications"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "VPN Alerts PagerDuty"
+      type: "pagerduty"
+      settings:
+        integrationKey: "{{ monitoring_pagerduty_integration_key }}"
+        severity: "error"
+        class: "VPN Infrastructure"
+        component: "VPN Server"
+    status_code: [200, 409]
+  when: 
+    - monitoring_grafana_api_key != ""
+    - monitoring_pagerduty_integration_key != ""
+
+- name: Configure email notification channel via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/alert-notifications"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "VPN Alerts Email"
+      type: "email"
+      settings:
+        addresses: "{{ monitoring_email_addresses | join(';') }}"
+        subject: "VPN Infrastructure Alert - {{ '{{' }} .CommonLabels.alertname {{ '}}' }}"
+    status_code: [200, 409]
+  when: 
+    - monitoring_grafana_api_key != ""
+    - monitoring_email_addresses | length > 0

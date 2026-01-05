@@ -1,0 +1,488 @@
+---
+# Certificate Rotation and Renewal Automation Playbook
+# Automated certificate lifecycle management
+# Requirements: 4.2, 4.4, 5.4
+
+- name: Certificate Rotation and Renewal
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ cert_rotation_batch_size | default(3) }}"
+  
+  vars:
+    rotation_timestamp: "{{ ansible_date_time.epoch }}"
+    rotation_id: "cert-rotation-{{ rotation_timestamp }}"
+    cert_backup_dir: "/opt/certificate-backups"
+    rotation_type: "{{ rotation_type | default('renewal') }}"  # renewal, emergency, scheduled
+    
+  pre_tasks:
+    - name: Validate certificate rotation prerequisites
+      block:
+        - name: Check certificate directories exist
+          stat:
+            path: "{{ item }}"
+          register: cert_directories
+          loop:
+            - /etc/ssl/certs
+            - /etc/ssl/private
+            - /etc/openvpn/ca
+            - /etc/openvpn/certs
+            - /etc/openvpn/keys
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Verify backup directory
+          file:
+            path: "{{ cert_backup_dir }}"
+            state: directory
+            mode: '0700'
+            owner: root
+            group: root
+            
+        - name: Check available disk space for backups
+          assert:
+            that:
+              - ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first > 536870912
+            fail_msg: "Insufficient disk space for certificate backups (minimum 512MB required)"
+            
+    - name: Create certificate rotation log entry
+      lineinfile:
+        path: /var/log/certificate-rotation.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting {{ rotation_type }} certificate rotation {{ rotation_id }} on {{ inventory_hostname }}"
+        create: yes
+
+  tasks:
+    # Certificate Discovery and Analysis
+    - name: Certificate Discovery and Expiry Analysis
+      block:
+        - name: Find all certificates
+          find:
+            paths:
+              - /etc/ssl/certs
+              - /etc/ssl/private
+              - /etc/openvpn/ca
+              - /etc/openvpn/certs
+            patterns: "*.crt,*.pem,*.cert"
+            recurse: yes
+          register: discovered_certificates
+          
+        - name: Analyze certificate expiration dates
+          openssl_certificate_info:
+            path: "{{ item.path }}"
+          register: certificate_info
+          loop: "{{ discovered_certificates.files }}"
+          when: item.path is match(".*\\.(crt|pem|cert)$")
+          
+        - name: Calculate days until expiration
+          set_fact:
+            certificate_expiry_analysis: >-
+              {{
+                certificate_expiry_analysis | default([]) +
+                [{
+                  'path': item.item.path,
+                  'subject': item.subject,
+                  'issuer': item.issuer,
+                  'not_after': item.not_after,
+                  'days_until_expiry': ((item.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days,
+                  'needs_renewal': ((item.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days < (renewal_threshold_days | default(30))
+                }]
+              }}
+          loop: "{{ certificate_info.results }}"
+          when: item.not_after is defined
+          
+        - name: Identify certificates requiring renewal
+          set_fact:
+            certificates_to_renew: "{{ certificate_expiry_analysis | selectattr('needs_renewal', 'equalto', true) | list }}"
+            
+        - name: Log certificate analysis results
+          debug:
+            msg: "Found {{ certificates_to_renew | length }} certificates requiring renewal out of {{ certificate_expiry_analysis | length }} total certificates"
+
+    # OpenVPN Certificate Management
+    - name: OpenVPN Certificate Rotation
+      block:
+        - name: Backup existing OpenVPN certificates
+          archive:
+            path:
+              - /etc/openvpn/ca
+              - /etc/openvpn/certs
+              - /etc/openvpn/keys
+            dest: "{{ cert_backup_dir }}/openvpn-certs-backup-{{ rotation_id }}.tar.gz"
+            format: gz
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Check OpenVPN CA certificate expiry
+          openssl_certificate_info:
+            path: /etc/openvpn/ca/ca.crt
+          register: ca_cert_info
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Calculate CA certificate expiry
+          set_fact:
+            ca_days_until_expiry: "{{ ((ca_cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days }}"
+          when: "'openvpn_servers' in group_names and ca_cert_info.not_after is defined"
+          
+        - name: Renew OpenVPN server certificate
+          block:
+            - name: Generate new server private key
+              openssl_privatekey:
+                path: /etc/openvpn/keys/server-new.key
+                size: "{{ openvpn_key_size | default(2048) }}"
+                type: RSA
+                mode: '0600'
+                
+            - name: Generate new server certificate request
+              openssl_csr:
+                path: /etc/openvpn/certs/server-new.csr
+                privatekey_path: /etc/openvpn/keys/server-new.key
+                common_name: "{{ inventory_hostname }}"
+                country_name: "{{ openvpn_ca_country | default('US') }}"
+                state_or_province_name: "{{ openvpn_ca_province | default('CA') }}"
+                locality_name: "{{ openvpn_ca_city | default('San Francisco') }}"
+                organization_name: "{{ openvpn_ca_org | default('VPN Infrastructure') }}"
+                email_address: "{{ openvpn_ca_email | default('admin@vpn.example.com') }}"
+                
+            - name: Sign new server certificate
+              openssl_certificate:
+                path: /etc/openvpn/certs/server-new.crt
+                csr_path: /etc/openvpn/certs/server-new.csr
+                ownca_path: /etc/openvpn/ca/ca.crt
+                ownca_privatekey_path: /etc/openvpn/ca/ca.key
+                provider: ownca
+                ownca_not_after: "+{{ openvpn_cert_expire | default(365) }}d"
+                mode: '0644'
+                
+            - name: Validate new certificate
+              openssl_certificate_info:
+                path: /etc/openvpn/certs/server-new.crt
+              register: new_server_cert_info
+              
+            - name: Verify certificate chain
+              command: openssl verify -CAfile /etc/openvpn/ca/ca.crt /etc/openvpn/certs/server-new.crt
+              register: cert_chain_verification
+              changed_when: false
+              
+          when: 
+            - "'openvpn_servers' in group_names"
+            - certificates_to_renew | selectattr('path', 'search', 'server.crt') | list | length > 0 or rotation_type == 'emergency'
+
+    # WireGuard Key Rotation
+    - name: WireGuard Key Rotation
+      block:
+        - name: Backup existing WireGuard configuration
+          copy:
+            src: /etc/wireguard/{{ wireguard_interface | default('wg0') }}.conf
+            dest: "{{ cert_backup_dir }}/wireguard-{{ wireguard_interface | default('wg0') }}-backup-{{ rotation_id }}.conf"
+            remote_src: yes
+          when: "'wireguard_servers' in group_names"
+          
+        - name: Generate new WireGuard server keys
+          block:
+            - name: Generate new private key
+              shell: wg genkey
+              register: new_wg_private_key
+              changed_when: false
+              no_log: true
+              
+            - name: Generate new public key
+              shell: echo "{{ new_wg_private_key.stdout }}" | wg pubkey
+              register: new_wg_public_key
+              changed_when: false
+              no_log: true
+              
+            - name: Store new keys securely
+              copy:
+                content: "{{ new_wg_private_key.stdout }}"
+                dest: /etc/wireguard/server-private-new.key
+                mode: '0600'
+                owner: root
+                group: root
+              no_log: true
+              
+          when: 
+            - "'wireguard_servers' in group_names"
+            - rotation_type in ['scheduled', 'emergency'] or force_wg_rotation | default(false)
+
+    # Certificate Deployment and Service Updates
+    - name: Deploy New Certificates
+      block:
+        - name: Stop VPN services for certificate update
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+          when: item != omit
+          
+        - name: Deploy new OpenVPN server certificate
+          block:
+            - name: Replace server certificate
+              copy:
+                src: /etc/openvpn/certs/server-new.crt
+                dest: /etc/openvpn/certs/server.crt
+                remote_src: yes
+                backup: yes
+                
+            - name: Replace server private key
+              copy:
+                src: /etc/openvpn/keys/server-new.key
+                dest: /etc/openvpn/keys/server.key
+                remote_src: yes
+                backup: yes
+                mode: '0600'
+                
+            - name: Update OpenVPN configuration with new certificate
+              lineinfile:
+                path: /etc/openvpn/server.conf
+                regexp: "^cert "
+                line: "cert /etc/openvpn/certs/server.crt"
+                
+            - name: Update OpenVPN configuration with new key
+              lineinfile:
+                path: /etc/openvpn/server.conf
+                regexp: "^key "
+                line: "key /etc/openvpn/keys/server.key"
+                
+          when: 
+            - "'openvpn_servers' in group_names"
+            - new_server_cert_info is defined
+            
+        - name: Deploy new WireGuard keys
+          block:
+            - name: Update WireGuard configuration with new private key
+              lineinfile:
+                path: /etc/wireguard/{{ wireguard_interface | default('wg0') }}.conf
+                regexp: "^PrivateKey = "
+                line: "PrivateKey = {{ new_wg_private_key.stdout }}"
+              no_log: true
+              
+            - name: Update WireGuard dashboard configuration
+              lineinfile:
+                path: /opt/wireguard-dashboard/src/wg-dashboard.ini
+                regexp: "^wg_conf_path = "
+                line: "wg_conf_path = /etc/wireguard"
+              when: wg_dashboard_enabled | default(true)
+              
+          when: 
+            - "'wireguard_servers' in group_names"
+            - new_wg_private_key is defined
+            
+        - name: Start VPN services after certificate update
+          systemd:
+            name: "{{ item }}"
+            state: started
+            enabled: yes
+          loop:
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+          when: item != omit
+          register: service_restart_results
+
+    # Certificate Validation and Testing
+    - name: Post-Rotation Validation
+      block:
+        - name: Wait for services to stabilize
+          pause:
+            seconds: 30
+            
+        - name: Verify OpenVPN service with new certificate
+          block:
+            - name: Check OpenVPN service status
+              systemd:
+                name: openvpn@server
+              register: openvpn_service_status
+              
+            - name: Test OpenVPN certificate
+              command: openssl x509 -in /etc/openvpn/certs/server.crt -text -noout
+              register: openvpn_cert_validation
+              changed_when: false
+              
+            - name: Verify OpenVPN is listening
+              wait_for:
+                port: "{{ openvpn_port_udp | default(1194) }}"
+                host: "{{ ansible_default_ipv4.address }}"
+                state: started
+                timeout: 60
+              register: openvpn_port_check
+              
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Verify WireGuard service with new keys
+          block:
+            - name: Check WireGuard service status
+              systemd:
+                name: "wg-quick@{{ wireguard_interface | default('wg0') }}"
+              register: wireguard_service_status
+              
+            - name: Test WireGuard interface
+              command: wg show {{ wireguard_interface | default('wg0') }}
+              register: wireguard_interface_check
+              changed_when: false
+              
+            - name: Verify WireGuard is listening
+              wait_for:
+                port: "{{ wireguard_port | default(51820) }}"
+                host: "{{ ansible_default_ipv4.address }}"
+                state: started
+                timeout: 60
+              register: wireguard_port_check
+              
+          when: "'wireguard_servers' in group_names"
+          
+        - name: Test client connectivity
+          block:
+            - name: Generate test client configuration (OpenVPN)
+              template:
+                src: test-client.ovpn.j2
+                dest: /tmp/test-client-{{ rotation_id }}.ovpn
+              when: "'openvpn_servers' in group_names"
+              
+            - name: Generate test client configuration (WireGuard)
+              template:
+                src: test-client-wg.conf.j2
+                dest: /tmp/test-client-wg-{{ rotation_id }}.conf
+              when: "'wireguard_servers' in group_names"
+
+    # Certificate Cleanup and Maintenance
+    - name: Certificate Cleanup and Maintenance
+      block:
+        - name: Remove temporary certificate files
+          file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /etc/openvpn/certs/server-new.crt
+            - /etc/openvpn/certs/server-new.csr
+            - /etc/openvpn/keys/server-new.key
+            - /etc/wireguard/server-private-new.key
+            
+        - name: Update certificate revocation list
+          command: openssl ca -config /etc/openvpn/ca/openssl.cnf -gencrl -out /etc/openvpn/crl/crl.pem
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Set certificate rotation reminder
+          cron:
+            name: "Certificate rotation reminder"
+            minute: "0"
+            hour: "9"
+            day: "{{ (ansible_date_time.day | int + 60) % 28 + 1 }}"
+            job: "echo 'Certificate rotation due in 30 days for {{ inventory_hostname }}' | mail -s 'Certificate Rotation Reminder' {{ ops_email | default('ops@example.com') }}"
+            user: root
+
+  post_tasks:
+    - name: Generate certificate rotation report
+      template:
+        src: certificate-rotation-report.j2
+        dest: "/tmp/certificate-rotation-{{ rotation_id }}-{{ inventory_hostname }}.txt"
+      vars:
+        rotation_summary:
+          type: "{{ rotation_type }}"
+          certificates_rotated: "{{ certificates_to_renew | length }}"
+          openvpn_status: "{{ openvpn_service_status.state if openvpn_service_status is defined else 'N/A' }}"
+          wireguard_status: "{{ wireguard_service_status.state if wireguard_service_status is defined else 'N/A' }}"
+          backup_location: "{{ cert_backup_dir }}"
+          
+    - name: Update certificate rotation log with completion
+      lineinfile:
+        path: /var/log/certificate-rotation.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed {{ rotation_type }} certificate rotation {{ rotation_id }} on {{ inventory_hostname }} - Status: SUCCESS"
+        
+    - name: Send certificate rotation notification
+      mail:
+        to: "{{ security_email | default('security@example.com') }}"
+        subject: "Certificate Rotation Completed - {{ inventory_hostname }}"
+        body: |
+          Certificate rotation completed successfully on {{ inventory_hostname }}.
+          
+          Rotation ID: {{ rotation_id }}
+          Rotation Type: {{ rotation_type }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          
+          Certificates rotated: {{ certificates_to_renew | length }}
+          OpenVPN status: {{ openvpn_service_status.state if openvpn_service_status is defined else 'N/A' }}
+          WireGuard status: {{ wireguard_service_status.state if wireguard_service_status is defined else 'N/A' }}
+          
+          Backup location: {{ cert_backup_dir }}/
+          Report: /tmp/certificate-rotation-{{ rotation_id }}-{{ inventory_hostname }}.txt
+      delegate_to: localhost
+      when: notify_on_completion | default(true)
+
+  handlers:
+    - name: restart openvpn
+      systemd:
+        name: openvpn@server
+        state: restarted
+        
+    - name: restart wireguard
+      systemd:
+        name: "wg-quick@{{ wireguard_interface | default('wg0') }}"
+        state: restarted
+
+# Emergency Certificate Rollback Procedures
+- name: Emergency Certificate Rollback
+  hosts: vpn_servers
+  become: yes
+  gather_facts: no
+  serial: 1
+  when: rollback_certificates | default(false)
+  
+  tasks:
+    - name: Emergency certificate rollback
+      block:
+        - name: Stop VPN services for rollback
+          systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+          when: item != omit
+          
+        - name: Restore OpenVPN certificates from backup
+          unarchive:
+            src: "{{ cert_backup_dir }}/openvpn-certs-backup-{{ rotation_id }}.tar.gz"
+            dest: /
+            remote_src: yes
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Restore WireGuard configuration from backup
+          copy:
+            src: "{{ cert_backup_dir }}/wireguard-{{ wireguard_interface | default('wg0') }}-backup-{{ rotation_id }}.conf"
+            dest: /etc/wireguard/{{ wireguard_interface | default('wg0') }}.conf
+            remote_src: yes
+          when: "'wireguard_servers' in group_names"
+          
+        - name: Start VPN services after rollback
+          systemd:
+            name: "{{ item }}"
+            state: started
+            enabled: yes
+          loop:
+            - "{{ 'openvpn@server' if 'openvpn_servers' in group_names else omit }}"
+            - "{{ 'wg-quick@' + (wireguard_interface | default('wg0')) if 'wireguard_servers' in group_names else omit }}"
+          when: item != omit
+          
+        - name: Log rollback completion
+          lineinfile:
+            path: /var/log/certificate-rotation.log
+            line: "{{ ansible_date_time.iso8601 }} - EMERGENCY ROLLBACK completed for {{ rotation_id }} on {{ inventory_hostname }}"
+            
+      rescue:
+        - name: Log rollback failure
+          lineinfile:
+            path: /var/log/certificate-rotation.log
+            line: "{{ ansible_date_time.iso8601 }} - EMERGENCY ROLLBACK FAILED for {{ rotation_id }} on {{ inventory_hostname }}"
+            
+        - name: Notify security team of rollback failure
+          mail:
+            to: "{{ security_email | default('security@example.com') }}"
+            subject: "CRITICAL: Certificate Rollback Failed - {{ inventory_hostname }}"
+            body: |
+              CRITICAL: Certificate rollback failed on {{ inventory_hostname }}.
+              
+              Rotation ID: {{ rotation_id }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              
+              Manual intervention required immediately.
+              Server may be in an unstable state.
+          delegate_to: localhost

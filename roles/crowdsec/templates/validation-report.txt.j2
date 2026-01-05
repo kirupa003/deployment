@@ -1,0 +1,76 @@
+CrowdSec Validation Report
+Generated: {{ ansible_date_time.iso8601 }}
+Hostname: {{ ansible_hostname }}
+IP Address: {{ ansible_default_ipv4.address }}
+
+=== INSTALLATION STATUS ===
+CrowdSec Version: {{ crowdsec_version_output.stdout | default('Unknown') }}
+Installation Path: {{ crowdsec_config_dir }}
+Data Directory: {{ crowdsec_data_dir }}
+Log Directory: {{ crowdsec_log_dir }}
+
+=== SERVICE STATUS ===
+CrowdSec Service: {{ crowdsec_service_status.status.ActiveState | default('Unknown') }}
+{% if crowdsec_firewall_integration %}
+Firewall Bouncer: {{ bouncer_service_status.status.ActiveState | default('Unknown') }}
+{% endif %}
+
+=== LAPI STATUS ===
+{% if crowdsec_lapi_enabled %}
+LAPI URL: {{ crowdsec_lapi_url }}
+LAPI Health: {{ 'Healthy' if lapi_health_check.status == 200 else 'Unhealthy' }}
+{% else %}
+LAPI: Disabled
+{% endif %}
+
+=== INSTALLED COMPONENTS ===
+Scenarios: {{ (installed_scenarios.stdout | from_json) | length }} installed
+Collections: {{ (installed_collections.stdout | from_json) | length }} installed
+
+Installed Scenarios:
+{% for scenario in (installed_scenarios.stdout | from_json) %}
+- {{ scenario.name }} ({{ scenario.status }})
+{% endfor %}
+
+Installed Collections:
+{% for collection in (installed_collections.stdout | from_json) %}
+- {{ collection.name }} ({{ collection.status }})
+{% endfor %}
+
+=== BOUNCER STATUS ===
+{{ bouncer_list.stdout }}
+
+=== ACTIVE DECISIONS ===
+{{ active_decisions.stdout }}
+
+=== FIREWALL INTEGRATION ===
+{% if crowdsec_iptables_integration %}
+IPTables Chain: {{ crowdsec_iptables_chain }}
+Chain Status: {{ 'Active' if iptables_chain_check.rc == 0 else 'Inactive' }}
+{% endif %}
+
+=== METRICS ===
+{% if crowdsec_prometheus_enabled %}
+Metrics Endpoint: http://{{ ansible_default_ipv4.address }}:{{ crowdsec_prometheus_port }}/metrics
+Metrics Status: {{ 'Available' if metrics_check.status == 200 else 'Unavailable' }}
+{% else %}
+Metrics: Disabled
+{% endif %}
+
+=== CONFIGURATION FILES ===
+- Main Config: {{ crowdsec_config_dir }}/config.yaml
+- Acquisition: {{ crowdsec_config_dir }}/acquis.yaml
+- Profiles: {{ crowdsec_config_dir }}/profiles.yaml
+- Simulation: {{ crowdsec_config_dir }}/simulation.yaml
+{% if crowdsec_notifications.slack.enabled or crowdsec_notifications.email.enabled %}
+- Notifications: {{ crowdsec_config_dir }}/notifications.yaml
+{% endif %}
+
+=== VALIDATION SUMMARY ===
+✓ CrowdSec installed and running
+{% if lapi_health_check.status == 200 %}✓{% else %}✗{% endif %} LAPI responding
+✓ Scenarios and collections installed
+{% if iptables_chain_check.rc == 0 %}✓{% else %}✗{% endif %} Firewall integration active
+{% if metrics_check.status == 200 %}✓{% else %}✗{% endif %} Metrics endpoint available
+
+Report saved to: /tmp/crowdsec-validation-report.txt

@@ -1,0 +1,77 @@
+---
+# Deploy WireGuard/AmneziaWG with Dashboard (Docker-based)
+# Usage: ansible-playbook playbooks/deploy/wireguard-dashboard.yml
+
+- name: Deploy WireGuard Dashboard
+  hosts: wireguard_servers:amneziawg_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Display deployment info
+      ansible.builtin.debug:
+        msg: |
+          Deploying WireGuard Dashboard to {{ inventory_hostname }}
+          Region: {{ vpn_region }}
+          Protocol: {{ vpn_protocol }}
+          Dashboard Port: {{ wg_dashboard_port | default(10086) }}
+
+  roles:
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening]
+      vars:
+        firewall_vpn_ports:
+          - { port: "{{ wg_listen_port | default(51820) }}", proto: udp }
+
+    - role: wg_dashboard
+      tags: [wg_dashboard, docker]
+
+    - role: coredns
+      when: coredns_enabled | default(true)
+      tags: [dns]
+
+    - role: node_exporter
+      tags: [monitoring]
+
+    - role: promtail
+      tags: [logging]
+
+    - role: crowdsec
+      tags: [security]
+
+    - role: fail2ban
+      tags: [security]
+
+  post_tasks:
+    - name: Display access information
+      ansible.builtin.debug:
+        msg: |
+          ==========================================
+          WireGuard Dashboard Deployed Successfully
+          ==========================================
+          Server: {{ inventory_hostname }}
+          Public IP: {{ ansible_default_ipv4.address }}
+
+          Dashboard URL: http://{{ ansible_default_ipv4.address }}:{{ wg_dashboard_port | default(10086) }}
+          Username: {{ wg_dashboard_admin_user | default('admin') }}
+          Password: <from vault>
+
+          VPN Protocol: {{ vpn_protocol | upper }}
+          {% if vpn_protocol == 'amneziawg' %}
+          AmneziaWG Port: {{ amneziawg_listen_port | default(51821) }}/UDP
+          {% else %}
+          WireGuard Port: {{ wg_listen_port | default(51820) }}/UDP
+          {% endif %}
+
+          Database (SQLite):
+          - Path: {{ wg_dashboard_db_path | default('/opt/wg-dashboard/data') }}
+          - All peer configs stored in: db.sqlite
+
+          Config Paths:
+          - WireGuard: {{ wg_dashboard_conf_path | default('/opt/wg-dashboard/conf') }}
+          - AmneziaWG: {{ wg_dashboard_aconf_path | default('/opt/wg-dashboard/aconf') }}
+          ==========================================
+      tags: [info]

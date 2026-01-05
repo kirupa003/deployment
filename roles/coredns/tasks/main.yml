@@ -1,0 +1,29 @@
+---
+- name: Include system setup tasks
+  include_tasks: system.yml
+  tags: [coredns, system]
+
+- name: Include installation tasks
+  include_tasks: install.yml
+  tags: [coredns, install]
+
+- name: Include configuration tasks
+  include_tasks: configure.yml
+  tags: [coredns, configure]
+
+- name: Include ad-blocking setup tasks
+  include_tasks: adblock.yml
+  tags: [coredns, adblock]
+  when: coredns_adblock_enabled | bool
+
+- name: Include firewall configuration tasks
+  include_tasks: firewall.yml
+  tags: [coredns, firewall]
+
+- name: Include service management tasks
+  include_tasks: service.yml
+  tags: [coredns, service]
+
+- name: Include validation tasks
+  include_tasks: validate.yml
+  tags: [coredns, validate]

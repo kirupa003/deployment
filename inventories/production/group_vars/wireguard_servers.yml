@@ -1,0 +1,50 @@
+---
+# WireGuard servers configuration
+
+# WireGuard specific settings
+wireguard:
+  enabled: true
+  interface: "wg0"
+  listen_port: 51820
+  private_key_path: "/etc/wireguard/private.key"
+  public_key_path: "/etc/wireguard/public.key"
+  config_path: "/etc/wireguard/wg0.conf"
+  
+  # Network configuration
+  network:
+    address: "10.8.0.1/24"
+    subnet: "10.8.0.0/24"
+    
+  # Dashboard configuration
+  dashboard:
+    enabled: true
+    port: 10086
+    admin_user: "admin"
+    # admin_password: defined in vault
+    db_path: "/opt/wg-dashboard/data"
+    conf_path: "/opt/wg-dashboard/conf"
+    docker_image: "ngoduykhanh/wireguard-ui:latest"
+    
+  # Client configuration
+  clients:
+    max_clients: 500
+    client_subnet: "10.8.0.0/24"
+    client_dns: "{{ ansible_default_ipv4.address }}"
+    
+  # Security settings
+  security:
+    preshared_key: true
+    endpoint_randomization: true
+    
+# WireGuard Exporter for monitoring
+wg_exporter:
+  enabled: true
+  port: 9586
+  listen_address: "0.0.0.0"
+  config_path: "/etc/wireguard/wg0.conf"
+  
+# Firewall rules specific to WireGuard
+firewall_rules:
+  - { rule: 'allow', port: '{{ wireguard.listen_port }}', proto: 'udp' }
+  - { rule: 'allow', port: '{{ wireguard.dashboard.port }}', proto: 'tcp', src: '10.0.0.0/8' }
+  - { rule: 'allow', port: '{{ wg_exporter.port }}', proto: 'tcp', src: '10.0.0.0/8' }

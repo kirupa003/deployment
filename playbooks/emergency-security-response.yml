@@ -1,0 +1,182 @@
+---
+- name: Emergency security response and IP blocking
+  hosts: vpn_servers
+  become: true
+  gather_facts: false
+  serial: "{{ emergency_batch_size | default('100%') }}"
+  
+  vars:
+    # Emergency response configuration
+    emergency_mode: true
+    response_timeout: 300  # 5 minutes as per requirement 4.3
+    
+  pre_tasks:
+    - name: Validate emergency parameters
+      assert:
+        that:
+          - emergency_action is defined
+          - emergency_action in ['block_ip', 'block_country', 'lockdown', 'unblock_ip']
+        fail_msg: "emergency_action must be defined and valid (block_ip, block_country, lockdown, unblock_ip)"
+      tags: always
+
+    - name: Log emergency action
+      lineinfile:
+        path: /var/log/emergency-security.log
+        line: "{{ ansible_date_time.iso8601 }} - Emergency action {{ emergency_action }} initiated by {{ ansible_user }} from {{ ansible_env.SSH_CLIENT | default('unknown') }}"
+        create: true
+        mode: '0600'
+      tags: always
+
+  tasks:
+    # Emergency IP blocking
+    - name: Block specific IP addresses
+      ufw:
+        rule: deny
+        from_ip: "{{ item }}"
+        comment: "Emergency block - {{ ansible_date_time.iso8601 }}"
+      loop: "{{ emergency_block_ips | default([]) }}"
+      when: emergency_action == 'block_ip'
+      tags: block_ip
+
+    - name: Add IPs to CrowdSec manual decisions
+      uri:
+        url: "http://localhost:{{ crowdsec_lapi_port | default(8080) }}/v1/decisions"
+        method: POST
+        headers:
+          X-Api-Key: "{{ crowdsec_lapi_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          - type: "ban"
+            value: "{{ item }}"
+            duration: "{{ emergency_ban_duration | default('24h') }}"
+            reason: "Emergency manual block"
+            scenario: "manual"
+        status_code: [200, 201]
+      loop: "{{ emergency_block_ips | default([]) }}"
+      when: 
+        - emergency_action == 'block_ip'
+        - crowdsec_lapi_enabled | default(false)
+      ignore_errors: true
+      tags: block_ip
+
+    # Emergency country blocking
+    - name: Block traffic from specific countries
+      iptables:
+        chain: INPUT
+        source: "{{ item }}"
+        jump: DROP
+        comment: "Emergency country block - {{ ansible_date_time.iso8601 }}"
+      loop: "{{ emergency_block_countries | default([]) }}"
+      when: emergency_action == 'block_country'
+      tags: block_country
+
+    # Emergency lockdown mode
+    - name: Enable emergency lockdown - block all non-essential traffic
+      block:
+        - name: Set UFW to deny all incoming
+          ufw:
+            state: enabled
+            policy: deny
+            direction: incoming
+
+        - name: Allow only SSH from management networks
+          ufw:
+            rule: allow
+            port: "{{ ansible_port | default('22') }}"
+            from_ip: "{{ item }}"
+            comment: "Emergency SSH access"
+          loop: "{{ emergency_management_networks | default(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']) }}"
+
+        - name: Block all VPN traffic temporarily
+          ufw:
+            rule: deny
+            port: "{{ item.port }}"
+            proto: "{{ item.proto }}"
+            comment: "Emergency VPN block"
+          loop:
+            - { port: "1194", proto: "udp" }  # OpenVPN
+            - { port: "51820", proto: "udp" } # WireGuard
+            - { port: "51821", proto: "udp" } # AmneziaWG
+
+      when: emergency_action == 'lockdown'
+      tags: lockdown
+
+    # Emergency unblock
+    - name: Remove emergency IP blocks
+      ufw:
+        rule: allow
+        from_ip: "{{ item }}"
+        delete: true
+      loop: "{{ emergency_unblock_ips | default([]) }}"
+      when: emergency_action == 'unblock_ip'
+      ignore_errors: true
+      tags: unblock_ip
+
+    - name: Remove CrowdSec manual decisions
+      uri:
+        url: "http://localhost:{{ crowdsec_lapi_port | default(8080) }}/v1/decisions"
+        method: DELETE
+        headers:
+          X-Api-Key: "{{ crowdsec_lapi_key }}"
+        body_format: form-urlencoded
+        body:
+          ip: "{{ item }}"
+        status_code: [200, 204]
+      loop: "{{ emergency_unblock_ips | default([]) }}"
+      when: 
+        - emergency_action == 'unblock_ip'
+        - crowdsec_lapi_enabled | default(false)
+      ignore_errors: true
+      tags: unblock_ip
+
+    # Notification and reporting
+    - name: Send emergency notification
+      mail:
+        to: "{{ emergency_notification_email | default('admin@example.com') }}"
+        subject: "EMERGENCY: Security action {{ emergency_action }} on {{ inventory_hostname }}"
+        body: |
+          Emergency security action executed:
+          
+          Action: {{ emergency_action }}
+          Server: {{ inventory_hostname }} ({{ ansible_default_ipv4.address }})
+          Time: {{ ansible_date_time.iso8601 }}
+          Executed by: {{ ansible_user }}
+          
+          {% if emergency_block_ips is defined %}
+          Blocked IPs: {{ emergency_block_ips | join(', ') }}
+          {% endif %}
+          
+          {% if emergency_block_countries is defined %}
+          Blocked Countries: {{ emergency_block_countries | join(', ') }}
+          {% endif %}
+          
+          Please review and take appropriate follow-up actions.
+      when: emergency_notification_email is defined
+      ignore_errors: true
+      tags: notification
+
+    - name: Generate emergency response report
+      template:
+        src: emergency-response-report.j2
+        dest: "/var/log/emergency-response-{{ ansible_date_time.epoch }}.log"
+        mode: '0600'
+      tags: reporting
+
+  post_tasks:
+    - name: Verify firewall status after emergency action
+      command: ufw status verbose
+      register: emergency_ufw_status
+      changed_when: false
+      tags: validation
+
+    - name: Display current firewall status
+      debug:
+        var: emergency_ufw_status.stdout_lines
+      tags: validation
+
+    - name: Log emergency action completion
+      lineinfile:
+        path: /var/log/emergency-security.log
+        line: "{{ ansible_date_time.iso8601 }} - Emergency action {{ emergency_action }} completed successfully"
+      tags: always

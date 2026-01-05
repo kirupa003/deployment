@@ -1,0 +1,126 @@
+---
+# Configure Cloudflare Access (Zero Trust) policies
+
+- name: Check Access prerequisites
+  assert:
+    that:
+      - cloudflare_api_token is defined
+      - cloudflare_account_id | length > 0
+    fail_msg: "cloudflare_api_token and cloudflare_account_id are required for Access configuration"
+
+- name: Create Access application for SSH
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/access/apps"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "{{ cloudflare_tunnel_name }}-ssh"
+      domain: "ansible.{{ cloudflare_domain }}"
+      type: "ssh"
+      session_duration: "24h"
+      auto_redirect_to_identity: true
+      allowed_idps: []
+    status_code: [200, 201, 409]  # 409 if already exists
+  register: access_app
+  when: cloudflare_ssh_browser_enabled | bool
+
+- name: Create Access policy - Allow specific emails
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/access/apps/{{ access_app.json.result.id }}/policies"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Allow DevOps Team"
+      decision: "allow"
+      include:
+        - email:
+            email: "{{ item }}"
+      precedence: 1
+    status_code: [200, 201, 409]
+  loop: "{{ cloudflare_access_allowed_emails }}"
+  when:
+    - cloudflare_ssh_browser_enabled | bool
+    - access_app.json.result.id is defined
+    - cloudflare_access_allowed_emails | length > 0
+
+- name: Create Access policy - Allow email domains
+  uri:
+    url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/access/apps/{{ access_app.json.result.id }}/policies"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ cloudflare_api_token }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Allow {{ item }} domain"
+      decision: "allow"
+      include:
+        - email_domain:
+            domain: "{{ item }}"
+      precedence: 2
+    status_code: [200, 201, 409]
+  loop: "{{ cloudflare_access_allowed_domains }}"
+  when:
+    - cloudflare_ssh_browser_enabled | bool
+    - access_app.json.result.id is defined
+    - cloudflare_access_allowed_domains | length > 0
+
+- name: Enable short-lived certificates for SSH
+  when: cloudflare_ssh_short_lived_certs | bool
+  block:
+    - name: Generate CA public key for short-lived certs
+      uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/access/apps/{{ access_app.json.result.id }}/ca"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+          Content-Type: "application/json"
+        status_code: [200, 201, 409]
+      register: ca_response
+      when: access_app.json.result.id is defined
+
+    - name: Get CA public key
+      uri:
+        url: "https://api.cloudflare.com/client/v4/accounts/{{ cloudflare_account_id }}/access/apps/{{ access_app.json.result.id }}/ca"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ cloudflare_api_token }}"
+        status_code: 200
+      register: ca_public_key
+      when: access_app.json.result.id is defined
+
+    - name: Save CA public key for SSH configuration
+      copy:
+        content: "{{ ca_public_key.json.result.public_key }}"
+        dest: "{{ cloudflared_config_dir }}/cf_ca.pub"
+        mode: "0644"
+      when: ca_public_key.json.result.public_key is defined
+
+    - name: Configure SSH to trust Cloudflare CA
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        block: |
+          # Cloudflare Access Short-Lived Certificates
+          PubkeyAuthentication yes
+          TrustedUserCAKeys {{ cloudflared_config_dir }}/cf_ca.pub
+        marker: "# {mark} ANSIBLE MANAGED - CLOUDFLARE ACCESS"
+      notify: Restart SSH
+
+- name: Display Access configuration
+  debug:
+    msg: |
+      Cloudflare Access Configuration:
+      - Application: {{ cloudflare_tunnel_name }}-ssh
+      - URL: https://ansible.{{ cloudflare_domain }}
+      - SSH Browser: {{ cloudflare_ssh_browser_enabled }}
+      - Short-lived Certs: {{ cloudflare_ssh_short_lived_certs }}
+
+      Users can access SSH via:
+      1. Browser: https://ansible.{{ cloudflare_domain }}
+      2. CLI: cloudflared access ssh --hostname ansible.{{ cloudflare_domain }}

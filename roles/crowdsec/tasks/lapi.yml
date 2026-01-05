@@ -1,0 +1,63 @@
+---
+- name: Check if LAPI machine exists
+  command: "cscli machines list -o json"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  register: existing_machines
+  changed_when: false
+
+- name: Parse existing machines
+  set_fact:
+    machine_exists: "{{ (existing_machines.stdout | from_json) | selectattr('machineId', 'equalto', crowdsec_machine_id) | list | length > 0 }}"
+
+- name: Generate LAPI password if not provided
+  set_fact:
+    crowdsec_lapi_generated_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+  when: crowdsec_lapi_password == ""
+
+- name: Use provided LAPI password
+  set_fact:
+    crowdsec_lapi_generated_password: "{{ crowdsec_lapi_password }}"
+  when: crowdsec_lapi_password != ""
+
+- name: Register LAPI machine
+  command: "cscli machines add {{ crowdsec_machine_id }} --password {{ crowdsec_lapi_generated_password }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  when: not machine_exists
+  register: machine_registration
+  changed_when: machine_registration.rc == 0
+
+- name: Validate LAPI machine registration
+  command: "cscli machines validate {{ crowdsec_machine_id }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  when: not machine_exists
+  changed_when: false
+
+- name: Generate local API credentials file
+  template:
+    src: local_api_credentials.yaml.j2
+    dest: "{{ crowdsec_config_dir }}/local_api_credentials.yaml"
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0600'
+    backup: true
+  become: true
+  notify: restart crowdsec
+
+- name: Check LAPI connectivity
+  uri:
+    url: "{{ crowdsec_lapi_url }}/v1/heartbeat"
+    method: GET
+    status_code: 200
+  register: lapi_health
+  retries: 3
+  delay: 5
+  until: lapi_health.status == 200
+  when: crowdsec_lapi_enabled | bool
+
+- name: Display LAPI status
+  debug:
+    msg: "CrowdSec LAPI is {{ 'healthy' if lapi_health.status == 200 else 'unhealthy' }}"
+  when: crowdsec_lapi_enabled | bool

@@ -1,0 +1,62 @@
+---
+# OpenVPN-specific configuration
+
+# OpenVPN Configuration
+openvpn_enabled: true
+openvpn_port_udp: 1194
+openvpn_port_tcp: 443
+openvpn_protocol: udp  # Primary protocol
+openvpn_network: 10.20.0.0/24
+openvpn_netmask: 255.255.255.0
+
+# Certificate Authority Configuration
+openvpn_ca_enabled: true
+openvpn_ca_name: "VPN-CA"
+openvpn_ca_country: "US"
+openvpn_ca_province: "CA"
+openvpn_ca_city: "San Francisco"
+openvpn_ca_org: "VPN Infrastructure"
+openvpn_ca_email: "admin@vpn.example.com"
+
+# Server Certificate Configuration
+openvpn_server_name: "{{ inventory_hostname }}"
+openvpn_key_size: 2048
+openvpn_ca_expire: 3650  # 10 years
+openvpn_cert_expire: 365  # 1 year
+
+# Client Configuration
+max_clients: 500
+client_to_client: false
+duplicate_cn: false
+
+# Security Configuration
+openvpn_cipher: AES-256-GCM
+openvpn_auth: SHA256
+openvpn_tls_auth: true
+openvpn_tls_version_min: "1.2"
+
+# DNS Configuration
+openvpn_dns_servers:
+  - 10.20.0.1  # Local CoreDNS
+  - 1.1.1.1
+  - 8.8.8.8
+
+# Routing Configuration
+openvpn_redirect_gateway: true
+openvpn_push_routes:
+  - "10.20.0.0 255.255.255.0"
+
+# Performance Settings
+openvpn_mtu: 1500
+openvpn_mssfix: 1460
+openvpn_sndbuf: 0
+openvpn_rcvbuf: 0
+
+# Firewall Rules
+openvpn_firewall_rules:
+  - port: "{{ openvpn_port_udp }}"
+    protocol: udp
+    rule: allow
+  - port: "{{ openvpn_port_tcp }}"
+    protocol: tcp
+    rule: allow

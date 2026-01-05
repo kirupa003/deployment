@@ -1,0 +1,66 @@
+---
+# Configure Cloudflare Tunnel
+
+- name: Check if tunnel token is provided
+  assert:
+    that:
+      - cloudflare_tunnel_token | length > 0
+    fail_msg: "cloudflare_tunnel_token must be set. Get it from Cloudflare Zero Trust dashboard."
+
+- name: Deploy cloudflared configuration
+  template:
+    src: config.yml.j2
+    dest: "{{ cloudflared_config_dir }}/config.yml"
+    owner: "{{ cloudflared_user }}"
+    group: "{{ cloudflared_user }}"
+    mode: "0600"
+  notify: Restart cloudflared
+
+- name: Install cloudflared as system service (token-based)
+  when: cloudflared_install_method != 'docker'
+  block:
+    - name: Create systemd service file
+      template:
+        src: cloudflared.service.j2
+        dest: /etc/systemd/system/cloudflared.service
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart cloudflared
+
+    - name: Enable and start cloudflared service
+      systemd:
+        name: cloudflared
+        enabled: true
+        state: started
+        daemon_reload: true
+
+- name: Start cloudflared Docker container
+  when: cloudflared_install_method == 'docker'
+  community.docker.docker_compose:
+    project_src: /opt/cloudflared
+    state: present
+    pull: true
+
+- name: Wait for tunnel to be established
+  wait_for:
+    port: "{{ cloudflared_metrics_port }}"
+    host: 127.0.0.1
+    timeout: 60
+  when: cloudflared_metrics_enabled | bool
+
+- name: Verify tunnel connection
+  uri:
+    url: "http://127.0.0.1:{{ cloudflared_metrics_port }}/ready"
+    method: GET
+    status_code: 200
+  register: tunnel_health
+  retries: 5
+  delay: 5
+  until: tunnel_health.status == 200
+  when: cloudflared_metrics_enabled | bool
+
+- name: Display tunnel status
+  debug:
+    msg: "Cloudflare Tunnel '{{ cloudflare_tunnel_name }}' is active and healthy"
+  when: cloudflared_metrics_enabled | bool and tunnel_health.status == 200

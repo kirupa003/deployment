@@ -1,0 +1,16 @@
+---
+- name: Enable and start promtail service
+  systemd:
+    name: promtail
+    enabled: "{{ promtail_service_enabled }}"
+    state: "{{ promtail_service_state }}"
+    daemon_reload: true
+  become: true
+
+- name: Wait for promtail to be ready
+  wait_for:
+    port: "{{ promtail_port }}"
+    host: "{{ promtail_listen_address }}"
+    delay: 5
+    timeout: 30
+  when: promtail_service_state == "started"

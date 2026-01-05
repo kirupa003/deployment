@@ -1,0 +1,326 @@
+-- {{ ansible_managed }}
+-- VPN Configuration Database Schema
+-- Centralized storage for all VPN peer configurations
+
+-- Enable extensions
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================
+-- VPN Servers (Gateways)
+-- ============================================
+CREATE TABLE IF NOT EXISTS vpn_servers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    hostname VARCHAR(255) NOT NULL UNIQUE,
+    public_ip INET NOT NULL,
+    private_ip INET,
+    region VARCHAR(50) NOT NULL,
+    country_code CHAR(2) NOT NULL,
+    city VARCHAR(100),
+
+    -- Server capabilities
+    protocol VARCHAR(20) NOT NULL CHECK (protocol IN ('wireguard', 'amneziawg', 'openvpn')),
+    max_peers INTEGER DEFAULT 250,
+    current_peers INTEGER DEFAULT 0,
+
+    -- Server keys (encrypted at rest)
+    public_key TEXT,
+    private_key_encrypted TEXT,  -- Encrypted with vault key
+
+    -- Connection details
+    listen_port INTEGER NOT NULL,
+    endpoint VARCHAR(255),  -- Public endpoint for clients
+
+    -- Server status
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'maintenance', 'disabled')),
+    health_check_url VARCHAR(255),
+    last_health_check TIMESTAMP WITH TIME ZONE,
+
+    -- Metadata
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- AmneziaWG obfuscation params (if applicable)
+    awg_jc INTEGER,
+    awg_jmin INTEGER,
+    awg_jmax INTEGER,
+    awg_s1 INTEGER,
+    awg_s2 INTEGER,
+    awg_h1 INTEGER,
+    awg_h2 INTEGER,
+    awg_h3 INTEGER,
+    awg_h4 INTEGER
+);
+
+-- ============================================
+-- VPN Peers (Clients)
+-- ============================================
+CREATE TABLE IF NOT EXISTS vpn_peers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    server_id UUID NOT NULL REFERENCES vpn_servers(id) ON DELETE CASCADE,
+
+    -- Peer identification
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    device_name VARCHAR(100),
+    device_type VARCHAR(50),  -- mobile, desktop, router, etc.
+
+    -- Peer keys
+    public_key TEXT NOT NULL,
+    preshared_key_encrypted TEXT,  -- Optional PSK, encrypted
+
+    -- Network configuration
+    allowed_ips CIDR[] NOT NULL,  -- Array of allowed IPs
+    assigned_ip INET NOT NULL,
+    assigned_ip_v6 INET,
+
+    -- Connection settings
+    dns_servers INET[] DEFAULT ARRAY['1.1.1.1'::INET],
+    persistent_keepalive INTEGER DEFAULT 25,
+    mtu INTEGER DEFAULT 1420,
+
+    -- Access control
+    enabled BOOLEAN DEFAULT true,
+    expires_at TIMESTAMP WITH TIME ZONE,
+
+    -- Usage tracking
+    last_handshake TIMESTAMP WITH TIME ZONE,
+    total_rx_bytes BIGINT DEFAULT 0,
+    total_tx_bytes BIGINT DEFAULT 0,
+
+    -- Metadata
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(255),
+    notes TEXT,
+
+    -- API access
+    api_token_hash TEXT,  -- For client config retrieval
+
+    UNIQUE(server_id, public_key),
+    UNIQUE(server_id, assigned_ip)
+);
+
+-- ============================================
+-- Peer Configuration Templates
+-- ============================================
+CREATE TABLE IF NOT EXISTS config_templates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(100) NOT NULL UNIQUE,
+    protocol VARCHAR(20) NOT NULL,
+
+    -- Template settings
+    dns_servers INET[] DEFAULT ARRAY['1.1.1.1'::INET],
+    allowed_ips CIDR[] DEFAULT ARRAY['0.0.0.0/0'::CIDR],
+    persistent_keepalive INTEGER DEFAULT 25,
+    mtu INTEGER DEFAULT 1420,
+
+    -- Metadata
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ============================================
+-- IP Address Pools
+-- ============================================
+CREATE TABLE IF NOT EXISTS ip_pools (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    server_id UUID NOT NULL REFERENCES vpn_servers(id) ON DELETE CASCADE,
+
+    -- Pool configuration
+    network CIDR NOT NULL,
+    gateway INET NOT NULL,
+
+    -- Allocation tracking
+    next_available INTEGER DEFAULT 2,  -- Start from .2
+
+    UNIQUE(server_id, network)
+);
+
+-- ============================================
+-- Audit Log
+-- ============================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- Actor
+    actor_type VARCHAR(20) NOT NULL,  -- api, admin, system, gateway
+    actor_id VARCHAR(255),
+    actor_ip INET,
+
+    -- Action
+    action VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id UUID,
+
+    -- Details
+    old_value JSONB,
+    new_value JSONB,
+    metadata JSONB
+);
+
+-- ============================================
+-- Config Sync Status (per gateway)
+-- ============================================
+CREATE TABLE IF NOT EXISTS sync_status (
+    server_id UUID PRIMARY KEY REFERENCES vpn_servers(id) ON DELETE CASCADE,
+    last_sync TIMESTAMP WITH TIME ZONE,
+    sync_version BIGINT DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'pending',
+    error_message TEXT
+);
+
+-- ============================================
+-- Indexes
+-- ============================================
+CREATE INDEX IF NOT EXISTS idx_peers_server ON vpn_peers(server_id);
+CREATE INDEX IF NOT EXISTS idx_peers_enabled ON vpn_peers(enabled) WHERE enabled = true;
+CREATE INDEX IF NOT EXISTS idx_peers_public_key ON vpn_peers(public_key);
+CREATE INDEX IF NOT EXISTS idx_peers_api_token ON vpn_peers(api_token_hash) WHERE api_token_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_servers_region ON vpn_servers(region);
+CREATE INDEX IF NOT EXISTS idx_servers_status ON vpn_servers(status);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resource_type, resource_id);
+
+-- ============================================
+-- Functions
+-- ============================================
+
+-- Auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply trigger to tables
+DROP TRIGGER IF EXISTS update_vpn_servers_updated_at ON vpn_servers;
+CREATE TRIGGER update_vpn_servers_updated_at
+    BEFORE UPDATE ON vpn_servers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+DROP TRIGGER IF EXISTS update_vpn_peers_updated_at ON vpn_peers;
+CREATE TRIGGER update_vpn_peers_updated_at
+    BEFORE UPDATE ON vpn_peers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Get next available IP from pool
+CREATE OR REPLACE FUNCTION allocate_ip(p_server_id UUID)
+RETURNS INET AS $$
+DECLARE
+    v_pool ip_pools%ROWTYPE;
+    v_next_ip INET;
+BEGIN
+    SELECT * INTO v_pool FROM ip_pools WHERE server_id = p_server_id LIMIT 1;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No IP pool found for server %', p_server_id;
+    END IF;
+
+    v_next_ip := host(v_pool.network) + v_pool.next_available;
+
+    -- Check if IP is within network range
+    IF NOT v_next_ip << v_pool.network THEN
+        RAISE EXCEPTION 'IP pool exhausted for server %', p_server_id;
+    END IF;
+
+    -- Update next available
+    UPDATE ip_pools SET next_available = next_available + 1 WHERE id = v_pool.id;
+
+    RETURN v_next_ip;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Generate WireGuard config for a peer
+CREATE OR REPLACE FUNCTION generate_peer_config(p_peer_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+    v_peer vpn_peers%ROWTYPE;
+    v_server vpn_servers%ROWTYPE;
+    v_config TEXT;
+BEGIN
+    SELECT * INTO v_peer FROM vpn_peers WHERE id = p_peer_id;
+    SELECT * INTO v_server FROM vpn_servers WHERE id = v_peer.server_id;
+
+    IF v_server.protocol = 'wireguard' OR v_server.protocol = 'amneziawg' THEN
+        v_config := format(
+            E'[Interface]\nPrivateKey = <YOUR_PRIVATE_KEY>\nAddress = %s\nDNS = %s\nMTU = %s\n\n[Peer]\nPublicKey = %s\nEndpoint = %s:%s\nAllowedIPs = %s\nPersistentKeepalive = %s\n',
+            v_peer.assigned_ip,
+            array_to_string(v_peer.dns_servers, ', '),
+            v_peer.mtu,
+            v_server.public_key,
+            COALESCE(v_server.endpoint, v_server.public_ip::TEXT),
+            v_server.listen_port,
+            array_to_string(v_peer.allowed_ips, ', '),
+            v_peer.persistent_keepalive
+        );
+
+        -- Add AmneziaWG params if applicable
+        IF v_server.protocol = 'amneziawg' THEN
+            v_config := v_config || format(
+                E'\n# AmneziaWG Obfuscation\nJc = %s\nJmin = %s\nJmax = %s\nS1 = %s\nS2 = %s\nH1 = %s\nH2 = %s\nH3 = %s\nH4 = %s\n',
+                v_server.awg_jc, v_server.awg_jmin, v_server.awg_jmax,
+                v_server.awg_s1, v_server.awg_s2,
+                v_server.awg_h1, v_server.awg_h2, v_server.awg_h3, v_server.awg_h4
+            );
+        END IF;
+    END IF;
+
+    RETURN v_config;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ============================================
+-- Views
+-- ============================================
+
+-- Server summary with peer counts
+CREATE OR REPLACE VIEW server_summary AS
+SELECT
+    s.id,
+    s.hostname,
+    s.region,
+    s.country_code,
+    s.protocol,
+    s.status,
+    s.public_ip,
+    s.listen_port,
+    s.max_peers,
+    COUNT(p.id) as peer_count,
+    COUNT(p.id) FILTER (WHERE p.enabled = true) as active_peers,
+    MAX(p.last_handshake) as last_activity
+FROM vpn_servers s
+LEFT JOIN vpn_peers p ON s.id = p.server_id
+GROUP BY s.id;
+
+-- Active peers view
+CREATE OR REPLACE VIEW active_peers AS
+SELECT
+    p.*,
+    s.hostname as server_hostname,
+    s.public_ip as server_ip,
+    s.region as server_region,
+    s.protocol
+FROM vpn_peers p
+JOIN vpn_servers s ON p.server_id = s.id
+WHERE p.enabled = true
+  AND (p.expires_at IS NULL OR p.expires_at > CURRENT_TIMESTAMP);
+
+-- ============================================
+-- Default data
+-- ============================================
+
+-- Insert default config template
+INSERT INTO config_templates (name, protocol, dns_servers, allowed_ips, description)
+VALUES
+    ('default-wireguard', 'wireguard', ARRAY['1.1.1.1'::INET, '8.8.8.8'::INET], ARRAY['0.0.0.0/0'::CIDR], 'Default WireGuard full tunnel'),
+    ('default-amneziawg', 'amneziawg', ARRAY['1.1.1.1'::INET], ARRAY['0.0.0.0/0'::CIDR], 'Default AmneziaWG with obfuscation'),
+    ('split-tunnel', 'wireguard', ARRAY['1.1.1.1'::INET], ARRAY['10.0.0.0/8'::CIDR], 'Split tunnel for internal resources only')
+ON CONFLICT (name) DO NOTHING;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {{ vpn_db_api_user }};
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ vpn_db_api_user }};
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO {{ vpn_db_readonly_user }};

@@ -1,0 +1,81 @@
+---
+- name: Harden SSH moduli
+  block:
+    - name: Check current moduli
+      shell: "awk '$5 >= {{ ssh_moduli_minimum }}' /etc/ssh/moduli | wc -l"
+      register: current_moduli_count
+      changed_when: false
+      become: true
+
+    - name: Display current moduli count
+      debug:
+        msg: "Current strong moduli count: {{ current_moduli_count.stdout }}"
+
+    - name: Backup original moduli file
+      copy:
+        src: /etc/ssh/moduli
+        dest: "/etc/ssh/moduli.backup.{{ ansible_date_time.epoch }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: preserve
+      become: true
+      when: ssh_regenerate_moduli or current_moduli_count.stdout|int < 10
+
+    - name: Remove weak moduli
+      shell: "awk '$5 >= {{ ssh_moduli_minimum }}' /etc/ssh/moduli > /etc/ssh/moduli.tmp && mv /etc/ssh/moduli.tmp /etc/ssh/moduli"
+      become: true
+      when: current_moduli_count.stdout|int > 0
+      notify: restart ssh
+
+    - name: Generate new moduli if needed
+      block:
+        - name: Generate new moduli (this may take a long time)
+          command: "ssh-keygen -G /etc/ssh/moduli.candidates -b 4096"
+          become: true
+          async: 3600
+          poll: 30
+          when: ssh_regenerate_moduli
+
+        - name: Test generated moduli
+          command: "ssh-keygen -T /etc/ssh/moduli.new -f /etc/ssh/moduli.candidates"
+          become: true
+          when: ssh_regenerate_moduli
+
+        - name: Replace moduli file
+          copy:
+            src: /etc/ssh/moduli.new
+            dest: /etc/ssh/moduli
+            remote_src: true
+            owner: root
+            group: root
+            mode: '0644'
+          become: true
+          when: ssh_regenerate_moduli
+          notify: restart ssh
+
+        - name: Clean up temporary moduli files
+          file:
+            path: "{{ item }}"
+            state: absent
+          become: true
+          loop:
+            - /etc/ssh/moduli.candidates
+            - /etc/ssh/moduli.new
+          when: ssh_regenerate_moduli
+
+      when: ssh_regenerate_moduli
+
+    - name: Verify final moduli count
+      shell: "awk '$5 >= {{ ssh_moduli_minimum }}' /etc/ssh/moduli | wc -l"
+      register: final_moduli_count
+      changed_when: false
+      become: true
+
+    - name: Display final moduli count
+      debug:
+        msg: "Final strong moduli count: {{ final_moduli_count.stdout }}"
+
+  tags:
+    - ssh_hardening
+    - moduli

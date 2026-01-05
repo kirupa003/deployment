@@ -1,0 +1,42 @@
+---
+- name: Manage UFW service
+  block:
+    - name: Enable UFW firewall
+      ufw:
+        state: "{{ ufw_state }}"
+      become: true
+      when: ufw_enabled
+
+    - name: Disable UFW firewall
+      ufw:
+        state: disabled
+      become: true
+      when: not ufw_enabled
+
+    - name: Ensure UFW service is enabled at boot
+      systemd:
+        name: ufw
+        enabled: true
+      become: true
+      when: ufw_enabled
+
+    - name: Ensure UFW service is disabled at boot
+      systemd:
+        name: ufw
+        enabled: false
+      become: true
+      when: not ufw_enabled
+
+    - name: Check UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+      become: true
+
+    - name: Display UFW status
+      debug:
+        var: ufw_status.stdout_lines
+
+  tags:
+    - ufw
+    - service

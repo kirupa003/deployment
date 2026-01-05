@@ -1,0 +1,34 @@
+[Unit]
+Description=Fluent Bit Log Processor
+Documentation=https://docs.fluentbit.io/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ fluent_bit_user }}
+Group={{ fluent_bit_group }}
+ExecStart=/usr/local/bin/fluent-bit --config={{ fluent_bit_config_dir }}/fluent-bit.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+# Security settings
+ProtectHome=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=yes
+
+# Allow access to log files
+ReadOnlyPaths=/var/log
+ReadWritePaths={{ fluent_bit_data_dir }}
+ReadWritePaths={{ fluent_bit_log_dir }}
+
+# Environment
+EnvironmentFile=-/etc/default/fluent-bit
+
+[Install]
+WantedBy=multi-user.target

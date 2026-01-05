@@ -1,0 +1,68 @@
+---
+# System Configuration for AmneziaWG
+
+- name: Configure kernel parameters for AmneziaWG
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-amneziawg.conf
+  become: true
+  loop: "{{ amneziawg_kernel_params | dict2items }}"
+  notify: apply sysctl
+
+- name: Ensure IP forwarding is enabled
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Enable IPv6 forwarding if needed
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    state: present
+    reload: true
+  become: true
+  when: ansible_default_ipv6 is defined
+
+- name: Create systemd override directory
+  file:
+    path: "{{ _amneziawg_systemd_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Configure systemd service override
+  copy:
+    content: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStartPre=/bin/bash -c 'until ping -c1 8.8.8.8; do sleep 1; done'
+      TimeoutStartSec=300
+    dest: "{{ _amneziawg_systemd_path }}/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: reload systemd
+
+- name: Add AmneziaWG module to load at boot
+  lineinfile:
+    path: /etc/modules-load.d/amneziawg.conf
+    line: amneziawg
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

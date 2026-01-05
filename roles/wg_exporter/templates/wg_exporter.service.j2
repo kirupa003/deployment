@@ -1,0 +1,51 @@
+[Unit]
+Description=Prometheus WireGuard Exporter
+Documentation=https://github.com/MindFlavor/prometheus_wireguard_exporter
+Wants=network-online.target
+After=network-online.target
+Requires=wg-quick@wg0.service
+After=wg-quick@wg0.service
+
+[Service]
+Type=simple
+User={{ wg_exporter_user }}
+Group={{ wg_exporter_group }}
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart={{ wg_exporter_binary_path }} \
+  --addr {{ wg_exporter_listen_address }}:{{ wg_exporter_port }} \
+{% if wg_exporter_collect_peer_names %}
+  --collect_peer_names \
+{% endif %}
+{% if wg_exporter_separate_allowed_ips %}
+  --separate_allowed_ips \
+{% endif %}
+{% if wg_exporter_export_remote_ip_and_port %}
+  --export_remote_ip_and_port \
+{% endif %}
+{% if wg_exporter_tls_enabled %}
+  --web.config.file={{ wg_exporter_web_config_file }} \
+{% endif %}
+  --verbose={{ wg_exporter_log_level }}
+
+SyslogIdentifier=wg_exporter
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+# Security settings
+ProtectHome=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=yes
+
+# Allow access to WireGuard configuration
+ReadOnlyPaths={{ wg_exporter_wireguard_config_path }}
+
+# Capabilities needed for WireGuard monitoring
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

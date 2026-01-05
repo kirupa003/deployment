@@ -1,0 +1,153 @@
+# Server-specific configuration template
+# Generated from template: inventories/templates/server.yml.j2
+# Server: {{ inventory_hostname }}
+# Generated at: {{ ansible_date_time.iso8601 }}
+
+---
+# Server Identity
+server:
+  hostname: "{{ inventory_hostname }}"
+  fqdn: "{{ inventory_hostname }}.{{ domain_name }}"
+  region: "{{ server_region }}"
+  datacenter: "{{ datacenter | default('unknown') }}"
+  provider: "{{ cloud_provider | default('unknown') }}"
+  instance_type: "{{ instance_type | default('unknown') }}"
+
+# Network Configuration
+network:
+  public_ip: "{{ ansible_default_ipv4.address }}"
+  private_ip: "{{ ansible_default_ipv4.address }}"
+  ipv6_address: "{{ ansible_default_ipv6.address | default('') }}"
+  interface: "{{ ansible_default_ipv4.interface }}"
+  gateway: "{{ ansible_default_ipv4.gateway }}"
+  
+# VPN Configuration
+vpn:
+  protocols:
+{% for protocol in vpn_protocols %}
+    - {{ protocol }}
+{% endfor %}
+  max_clients: {{ max_concurrent_connections | default(1000) }}
+  bandwidth_limit: {{ bandwidth_limit_mbps | default(1000) }}
+  
+  # WireGuard specific
+  {% if 'wireguard' in vpn_protocols %}
+  wireguard:
+    interface: "{{ wireguard_interface | default('wg0') }}"
+    port: {{ wireguard_port | default(51820) }}
+    network: "{{ wireguard_network | default('10.8.0.0/24') }}"
+    server_ip: "{{ wireguard_server_ip | default('10.8.0.1') }}"
+    dashboard_enabled: {{ wireguard_dashboard_enabled | default(true) }}
+    dashboard_port: {{ wireguard_dashboard_port | default(10086) }}
+  {% endif %}
+  
+  # OpenVPN specific
+  {% if 'openvpn' in vpn_protocols %}
+  openvpn:
+    port_udp: {{ openvpn_port_udp | default(1194) }}
+    port_tcp: {{ openvpn_port_tcp | default(443) }}
+    network: "{{ openvpn_network | default('10.9.0.0/24') }}"
+    server_ip: "{{ openvpn_server_ip | default('10.9.0.1') }}"
+    ca_cert_days: {{ openvpn_ca_cert_days | default(3650) }}
+    server_cert_days: {{ openvpn_server_cert_days | default(365) }}
+    client_cert_days: {{ openvpn_client_cert_days | default(365) }}
+  {% endif %}
+  
+  # AmneziaWG specific
+  {% if 'amneziawg' in vpn_protocols %}
+  amneziawg:
+    interface: "{{ amneziawg_interface | default('awg0') }}"
+    port: {{ amneziawg_port | default(51821) }}
+    network: "{{ amneziawg_network | default('10.10.0.0/24') }}"
+    server_ip: "{{ amneziawg_server_ip | default('10.10.0.1') }}"
+    obfuscation: {{ amneziawg_obfuscation | default(true) }}
+  {% endif %}
+
+# Monitoring Configuration
+monitoring:
+  node_exporter:
+    enabled: {{ node_exporter_enabled | default(true) }}
+    port: {{ node_exporter_port | default(9100) }}
+    
+  wg_exporter:
+    enabled: {{ wg_exporter_enabled | default(true) }}
+    port: {{ wg_exporter_port | default(9586) }}
+    
+  promtail:
+    enabled: {{ promtail_enabled | default(true) }}
+    port: {{ promtail_port | default(9080) }}
+    loki_url: "{{ loki_url | default('http://loki.monitoring.svc.cluster.local:3100') }}"
+    
+  fluent_bit:
+    enabled: {{ fluent_bit_enabled | default(true) }}
+    port: {{ fluent_bit_port | default(2020) }}
+
+# Security Configuration
+security:
+  ssh:
+    port: {{ ssh_port | default(22) }}
+    allow_users:
+{% for user in ssh_allow_users %}
+      - {{ user }}
+{% endfor %}
+    deny_users:
+{% for user in ssh_deny_users %}
+      - {{ user }}
+{% endfor %}
+    key_types:
+{% for key_type in ssh_key_types | default(['rsa', 'ed25519']) %}
+      - {{ key_type }}
+{% endfor %}
+    
+  firewall:
+    enabled: {{ ufw_enabled | default(true) }}
+    default_policy:
+      incoming: {{ ufw_default_policy.incoming | default('deny') }}
+      outgoing: {{ ufw_default_policy.outgoing | default('allow') }}
+      routed: {{ ufw_default_policy.routed | default('deny') }}
+    
+  crowdsec:
+    enabled: {{ crowdsec_enabled | default(true) }}
+    lapi_url: "{{ crowdsec_lapi_url | default('http://crowdsec-lapi.security.svc.cluster.local:8080') }}"
+    
+  fail2ban:
+    enabled: {{ fail2ban_enabled | default(true) }}
+    ban_time: {{ fail2ban_ban_time | default(3600) }}
+    max_retry: {{ fail2ban_max_retry | default(5) }}
+
+# DNS Configuration
+dns:
+  coredns:
+    enabled: {{ coredns_enabled | default(true) }}
+    port: {{ coredns_port | default(53) }}
+    admin_port: {{ coredns_admin_port | default(9153) }}
+    upstream_servers:
+{% for server in dns_servers %}
+      - {{ server }}
+{% endfor %}
+    ad_blocking: {{ ad_blocking_enabled | default(true) }}
+    cache_size: {{ dns_cache_size | default(10000) }}
+
+# System Configuration
+system:
+  timezone: "{{ timezone | default('UTC') }}"
+  locale: "{{ system_locale | default('en_US.UTF-8') }}"
+  kernel_optimization: {{ kernel_optimization | default(true) }}
+  network_optimization: {{ network_optimization | default(true) }}
+  tcp_bbr: {{ tcp_bbr_enabled | default(true) }}
+  
+# Backup Configuration
+backup:
+  enabled: {{ backup_enabled | default(true) }}
+  local_path: "{{ backup_local_path | default('/opt/vpn-backups') }}"
+  remote_path: "{{ backup_remote_path | default('') }}"
+  retention_days: {{ backup_retention_days | default(7) }}
+  schedule: "{{ backup_schedule | default('0 2 * * *') }}"
+  
+# Maintenance Configuration
+maintenance:
+  auto_updates: {{ auto_updates_enabled | default(true) }}
+  security_updates_only: {{ security_updates_only | default(true) }}
+  reboot_required: {{ reboot_required_check | default(true) }}
+  maintenance_window: "{{ maintenance_window | default('02:00-04:00') }}"
+  notification_email: "{{ maintenance_notification_email | default('') }}"

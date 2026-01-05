@@ -1,0 +1,110 @@
+---
+# Non-sensitive variables (public)
+# Sensitive variables are in vault.yml (encrypted)
+
+# ============================================
+# ORGANIZATION INFO
+# ============================================
+org_name: "Planet Proxy"
+org_domain: "vpn.example.com"
+environment: production
+
+# ============================================
+# ANSIBLE CONNECTION
+# ============================================
+ansible_user: ansible
+ansible_become: true
+ansible_python_interpreter: /usr/bin/python3
+
+# ============================================
+# HASHICORP VAULT
+# ============================================
+vault_addr: "https://vault.{{ org_domain }}:8200"
+vault_namespace: "vpn-infrastructure"
+vault_auth_method: approle
+vault_secrets_engine: "kv-v2"
+
+# ============================================
+# TIME & LOCALE
+# ============================================
+timezone: UTC
+locale: en_US.UTF-8
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+  - 2.pool.ntp.org
+  - 3.pool.ntp.org
+
+# ============================================
+# DNS CONFIGURATION
+# ============================================
+dns_upstream_servers:
+  - 1.1.1.1
+  - 8.8.8.8
+  - 9.9.9.9
+dns_blocklist_enabled: true
+dns_blocklist_sources:
+  - "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
+  - "https://adaway.org/hosts.txt"
+
+# ============================================
+# MONITORING ENDPOINTS
+# ============================================
+victoriametrics_url: "https://vm.{{ org_domain }}"
+victoriametrics_scrape_interval: 15s
+loki_url: "https://loki.{{ org_domain }}"
+grafana_url: "https://grafana.{{ org_domain }}"
+alertmanager_url: "https://alertmanager.{{ org_domain }}"
+
+# ============================================
+# SECURITY ENDPOINTS
+# ============================================
+crowdsec_lapi_url: "https://crowdsec-lapi.{{ org_domain }}:8080"
+fail2ban_enabled: true
+fail2ban_max_retry: 10
+fail2ban_ban_time: 3600
+fail2ban_find_time: 600
+
+# ============================================
+# FIREWALL DEFAULTS
+# ============================================
+firewall_allowed_tcp_ports:
+  - 22    # SSH
+  - 443   # HTTPS/OpenVPN TCP
+firewall_allowed_udp_ports:
+  - 51820 # WireGuard
+  - 1194  # OpenVPN UDP
+
+# ============================================
+# PACKAGE MANAGEMENT
+# ============================================
+package_update_cache: true
+package_upgrade: false
+packages_common:
+  - vim
+  - htop
+  - curl
+  - wget
+  - git
+  - jq
+  - unzip
+  - net-tools
+  - dnsutils
+  - iptables-persistent
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# ============================================
+# LOGGING
+# ============================================
+syslog_facility: local0
+log_retention_days: 30
+
+# ============================================
+# TAGS FOR CLOUD RESOURCES
+# ============================================
+default_tags:
+  managed_by: ansible
+  environment: "{{ environment }}"
+  project: vpn-infrastructure

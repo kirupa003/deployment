@@ -1,0 +1,55 @@
+---
+# AmneziaWG Installation Verification
+
+- name: Check AmneziaWG service status
+  systemd:
+    name: "awg-quick@{{ amneziawg_interface }}"
+  register: amneziawg_service_status
+
+- name: Verify AmneziaWG interface is up
+  command: "{{ _awg_binary }} show {{ amneziawg_interface }}"
+  register: awg_interface_status
+  changed_when: false
+  failed_when: awg_interface_status.rc != 0
+
+- name: Check AmneziaWG interface IP configuration
+  command: ip addr show {{ amneziawg_interface }}
+  register: awg_ip_status
+  changed_when: false
+  failed_when: awg_ip_status.rc != 0
+
+- name: Verify kernel module is loaded
+  command: lsmod | grep amneziawg
+  register: awg_module_status
+  changed_when: false
+  failed_when: awg_module_status.rc != 0
+
+- name: Verify firewall rules
+  command: ufw status
+  register: ufw_status
+  changed_when: false
+  when: amneziawg_firewall_enabled
+
+- name: Display AmneziaWG status
+  debug:
+    msg: |
+      AmneziaWG Status:
+      - Service: {{ amneziawg_service_status.status.ActiveState }}
+      - Interface: {{ amneziawg_interface }} is {{ 'UP' if awg_interface_status.rc == 0 else 'DOWN' }}
+      - Kernel Module: {{ 'Loaded' if awg_module_status.rc == 0 else 'Not Loaded' }}
+      - Server IP: {{ amneziawg_server_ip }}
+      - Listen Port: {{ amneziawg_port }}
+      - Obfuscation: {{ 'Enabled' if amneziawg_obfuscation_enabled else 'Disabled' }}
+
+- name: Display server public key
+  debug:
+    msg: "Server Public Key: {{ amneziawg_server_public_key }}"
+
+- name: Create verification report
+  template:
+    src: verification-report.txt.j2
+    dest: /tmp/amneziawg-verification-report.txt
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

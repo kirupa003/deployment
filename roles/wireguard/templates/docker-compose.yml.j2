@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  wireguard-dashboard:
+    image: {{ wg_dashboard_docker_image }}
+    container_name: wireguard-dashboard
+    restart: unless-stopped
+    ports:
+      - "{{ wg_dashboard_port }}:5000"
+    volumes:
+      - {{ wireguard_config_dir }}:/etc/wireguard
+      - {{ wg_dashboard_config_dir }}:/opt/wireguarddashboard/src
+      - {{ wg_dashboard_data_dir }}/db:/opt/wireguarddashboard/src/db
+    environment:
+      - WGDASH_CONFIG_FILE=/opt/wireguarddashboard/src/wg-dashboard.ini
+    cap_add:
+      - NET_ADMIN
+    network_mode: host
+    privileged: true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wireguard-dashboard.rule=Host(`{{ inventory_hostname }}`)"
+      - "traefik.http.routers.wireguard-dashboard.entrypoints=web"
+      - "traefik.http.services.wireguard-dashboard.loadbalancer.server.port={{ wg_dashboard_port }}"
+
+networks:
+  default:
+    external:
+      name: {{ docker_network_name }}

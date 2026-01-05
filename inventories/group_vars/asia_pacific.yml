@@ -1,0 +1,42 @@
+---
+# Asia Pacific region-specific configuration
+
+# Regional Settings
+region: asia_pacific
+region_code: ap
+datacenter_location: "Singapore"
+
+# Network Configuration
+region_network: 10.3.0.0/16
+management_networks:
+  - 10.3.0.0/24    # Management subnet
+  - 192.168.3.0/24 # Office network
+
+# Time and Locale
+timezone: Asia/Singapore
+locale: en_US.UTF-8
+
+# Monitoring Endpoints
+metrics_endpoint: metrics-ap.vpn.example.com
+logs_endpoint: logs-ap.vpn.example.com
+alerts_endpoint: alerts-ap.vpn.example.com
+
+# Backup Configuration
+backup_region: ap-southeast-1
+backup_bucket: vpn-backups-ap
+
+# Performance Settings
+# Optimized for Asia Pacific latency
+tcp_congestion_control: bbr
+net_core_rmem_max: 134217728
+net_core_wmem_max: 134217728
+
+# Regional Compliance
+apac_compliance: true
+data_retention_policy: "apac_standard"
+log_anonymization: true
+
+# Load Balancer Configuration
+lb_algorithm: weighted_round_robin
+health_check_interval: 30
+health_check_timeout: 5

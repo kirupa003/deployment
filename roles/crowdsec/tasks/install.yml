@@ -1,0 +1,75 @@
+---
+- name: Install CrowdSec
+  package:
+    name: crowdsec
+    state: present
+  become: true
+  notify: restart crowdsec
+
+- name: Install CrowdSec firewall bouncer
+  package:
+    name: crowdsec-firewall-bouncer-iptables
+    state: present
+  become: true
+  when: crowdsec_firewall_integration | bool
+  notify: restart crowdsec-firewall-bouncer
+
+- name: Check CrowdSec installation
+  command: cscli version
+  register: crowdsec_version_check
+  changed_when: false
+  become: true
+
+- name: Display CrowdSec version
+  debug:
+    msg: "CrowdSec version: {{ crowdsec_version_check.stdout }}"
+
+- name: Initialize CrowdSec hub
+  command: cscli hub update
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  changed_when: false
+
+- name: Install CrowdSec collections
+  command: "cscli collections install {{ item }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  loop: "{{ crowdsec_collections }}"
+  register: collection_install
+  changed_when: "'already exists' not in collection_install.stderr"
+  failed_when: 
+    - collection_install.rc != 0
+    - "'already exists' not in collection_install.stderr"
+
+- name: Install CrowdSec scenarios
+  command: "cscli scenarios install {{ item }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  loop: "{{ crowdsec_scenarios }}"
+  register: scenario_install
+  changed_when: "'already exists' not in scenario_install.stderr"
+  failed_when: 
+    - scenario_install.rc != 0
+    - "'already exists' not in scenario_install.stderr"
+
+- name: Install CrowdSec parsers
+  command: "cscli parsers install {{ item }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  loop: "{{ crowdsec_parsers }}"
+  register: parser_install
+  changed_when: "'already exists' not in parser_install.stderr"
+  failed_when: 
+    - parser_install.rc != 0
+    - "'already exists' not in parser_install.stderr"
+
+- name: Install CrowdSec postoverflows
+  command: "cscli postoverflows install {{ item }}"
+  become: true
+  become_user: "{{ crowdsec_user }}"
+  loop: "{{ crowdsec_postoverflows }}"
+  register: postoverflow_install
+  changed_when: "'already exists' not in postoverflow_install.stderr"
+  failed_when: 
+    - postoverflow_install.rc != 0
+    - "'already exists' not in postoverflow_install.stderr"

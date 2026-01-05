@@ -1,0 +1,68 @@
+---
+- name: Test DNS resolution for known good domain
+  command: dig @{{ ansible_default_ipv4.address }} google.com +short
+  register: dns_test_good
+  changed_when: false
+  failed_when: dns_test_good.rc != 0 or dns_test_good.stdout == ""
+
+- name: Test DNS resolution for blocked domain
+  command: dig @{{ ansible_default_ipv4.address }} doubleclick.net +short
+  register: dns_test_blocked
+  changed_when: false
+  failed_when: false
+  when: coredns_adblock_enabled | bool
+
+- name: Test DNS over TCP
+  command: dig @{{ ansible_default_ipv4.address }} +tcp cloudflare.com +short
+  register: dns_tcp_test
+  changed_when: false
+  failed_when: dns_tcp_test.rc != 0
+
+- name: Validate CoreDNS configuration syntax
+  command: "{{ coredns_home }}/coredns -conf {{ coredns_config_dir }}/Corefile -validate"
+  register: config_validation
+  changed_when: false
+  become: yes
+  become_user: "{{ coredns_user }}"
+
+- name: Check CoreDNS process and memory usage
+  shell: |
+    ps aux | grep coredns | grep -v grep
+    systemctl status coredns --no-pager -l
+  register: process_status
+  changed_when: false
+
+- name: Verify blocklist files exist and are not empty
+  stat:
+    path: "{{ coredns_data_dir }}/blocklists/combined-blocklist.txt"
+  register: blocklist_file
+  when: coredns_adblock_enabled | bool
+
+- name: Count blocked domains
+  shell: wc -l "{{ coredns_data_dir }}/blocklists/combined-blocklist.txt" | cut -d' ' -f1
+  register: blocked_domains_count
+  changed_when: false
+  when: coredns_adblock_enabled | bool and blocklist_file.stat.exists
+
+- name: Generate validation report
+  template:
+    src: validation-report.txt.j2
+    dest: "{{ coredns_log_dir }}/validation-report-{{ ansible_date_time.epoch }}.txt"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0644'
+  become: yes
+
+- name: Display validation results
+  debug:
+    msg: |
+      CoreDNS Validation Results:
+      ========================
+      Configuration: {{ 'Valid' if config_validation.rc == 0 else 'Invalid' }}
+      DNS Resolution (good): {{ 'Working' if dns_test_good.rc == 0 else 'Failed' }}
+      DNS Resolution (TCP): {{ 'Working' if dns_tcp_test.rc == 0 else 'Failed' }}
+      {% if coredns_adblock_enabled | bool %}
+      Ad-blocking: {{ 'Active' if dns_test_blocked.stdout == '' or '0.0.0.0' in dns_test_blocked.stdout else 'Not working' }}
+      Blocked domains: {{ blocked_domains_count.stdout | default('Unknown') }}
+      {% endif %}
+      Service status: Running

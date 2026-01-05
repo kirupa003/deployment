@@ -1,0 +1,66 @@
+WireGuard Installation Verification Report
+==========================================
+
+Generated: {{ ansible_date_time.iso8601 }}
+Server: {{ inventory_hostname }}
+Ansible User: {{ ansible_user }}
+
+Configuration Summary:
+---------------------
+Interface: {{ wireguard_interface }}
+Server IP: {{ wireguard_server_ip }}
+Network: {{ wireguard_network }}
+Listen Port: {{ wireguard_port }}
+MTU: {{ wireguard_mtu }}
+
+Service Status:
+--------------
+WireGuard Service: {{ wireguard_service_status.status.ActiveState }}
+Dashboard Enabled: {{ wg_dashboard_enabled }}
+{% if wg_dashboard_enabled %}
+Dashboard Status: {{ 'Available' if dashboard_status.status == 200 else 'Not Available' }}
+Dashboard Port: {{ wg_dashboard_port }}
+{% endif %}
+
+Network Configuration:
+---------------------
+{% if wg_interface_status.rc == 0 %}
+Interface Status: UP
+{% else %}
+Interface Status: DOWN
+{% endif %}
+
+Firewall Status:
+---------------
+{% if wireguard_firewall_enabled %}
+UFW Status: {{ ufw_status.stdout_lines[0] if ufw_status.stdout_lines else 'Unknown' }}
+{% else %}
+UFW: Disabled
+{% endif %}
+
+Server Keys:
+-----------
+Public Key: {{ wireguard_server_public_key }}
+
+Client Management:
+-----------------
+Max Clients: {{ max_clients }}
+Client Subnet: {{ client_subnet }}
+Config Directory: {{ client_config_dir }}
+QR Code Directory: {{ client_qr_dir }}
+
+Management Commands:
+-------------------
+Add Client: wg-add-client <name>
+Remove Client: wg-remove-client <name>
+List Clients: wg-list-clients
+Generate QR: wg-generate-qr <name>
+
+Dashboard Access:
+----------------
+{% if wg_dashboard_enabled %}
+URL: http://{{ ansible_default_ipv4.address }}:{{ wg_dashboard_port }}
+Username: {{ wg_dashboard_admin_user }}
+{% endif %}
+
+Installation Complete: {{ ansible_date_time.iso8601 }}

@@ -1,0 +1,48 @@
+---
+- name: Check wg_exporter service status
+  systemd:
+    name: wg_exporter
+  register: wg_exporter_service_status
+  become: true
+
+- name: Verify wg_exporter is running
+  assert:
+    that:
+      - wg_exporter_service_status.status.ActiveState == "active"
+      - wg_exporter_service_status.status.SubState == "running"
+    fail_msg: "WireGuard Exporter service is not running properly"
+    success_msg: "WireGuard Exporter service is running correctly"
+
+- name: Test wg_exporter metrics endpoint
+  uri:
+    url: "http://{{ wg_exporter_listen_address }}:{{ wg_exporter_port }}/metrics"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: wg_exporter_metrics_test
+  retries: 3
+  delay: 5
+
+- name: Verify WireGuard metrics are being collected
+  assert:
+    that:
+      - "'wireguard_' in wg_exporter_metrics_test.content"
+    fail_msg: "WireGuard Exporter metrics are not available"
+    success_msg: "WireGuard Exporter is collecting metrics correctly"
+
+- name: Check for specific WireGuard metrics
+  set_fact:
+    wg_metrics_found:
+      - "{{ 'wireguard_device_info' in wg_exporter_metrics_test.content }}"
+      - "{{ 'wireguard_peer_info' in wg_exporter_metrics_test.content }}"
+      - "{{ 'wireguard_peer_receive_bytes_total' in wg_exporter_metrics_test.content }}"
+      - "{{ 'wireguard_peer_transmit_bytes_total' in wg_exporter_metrics_test.content }}"
+
+- name: Display wg_exporter status
+  debug:
+    msg:
+      - "WireGuard Exporter Status: {{ wg_exporter_service_status.status.ActiveState }}"
+      - "WireGuard Exporter Version: {{ wg_exporter_version }}"
+      - "Metrics Endpoint: http://{{ ansible_default_ipv4.address }}:{{ wg_exporter_port }}/metrics"
+      - "Monitored Interfaces: {{ wg_exporter_interfaces | join(', ') }}"
+      - "Metrics Available: {{ wg_metrics_found | select() | list | length }}/4 core metrics found"

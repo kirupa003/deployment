@@ -1,0 +1,231 @@
+---
+# VPN Infrastructure Alert Rules
+# Deploy to VictoriaMetrics/Prometheus
+
+groups:
+  - name: vpn_server_health
+    interval: 30s
+    rules:
+      # Server Down
+      - alert: VPNServerDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "VPN server {{ $labels.instance }} is down"
+          description: "Server {{ $labels.instance }} in {{ $labels.region }} has been unreachable for more than 2 minutes."
+          runbook_url: "https://wiki.example.com/runbooks/vpn-server-down"
+
+      # High CPU
+      - alert: VPNServerHighCPU
+        expr: node_load1 > 0.85 * count without(cpu) (node_cpu_seconds_total{mode="idle"})
+        for: 5m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "High CPU load on {{ $labels.instance }}"
+          description: "CPU load is {{ $value | printf \"%.2f\" }} on {{ $labels.instance }}."
+
+      # High Memory
+      - alert: VPNServerHighMemory
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}."
+
+      # Disk Space Critical
+      - alert: VPNServerDiskCritical
+        expr: (node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_avail_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"} * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "Critical disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}."
+
+      # Disk Space Warning
+      - alert: VPNServerDiskWarning
+        expr: (node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_avail_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"} * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "Disk space warning on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}."
+
+  - name: vpn_service_health
+    interval: 30s
+    rules:
+      # WireGuard Interface Down
+      - alert: WireGuardInterfaceDown
+        expr: wireguard_interface_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "WireGuard interface down on {{ $labels.instance }}"
+          description: "WireGuard interface {{ $labels.interface }} is down on {{ $labels.instance }}."
+          runbook_url: "https://wiki.example.com/runbooks/wireguard-down"
+
+      # No Active Peers (potential issue)
+      - alert: VPNNoPeers
+        expr: wireguard_peers == 0
+        for: 30m
+        labels:
+          severity: info
+          team: vpn-ops
+        annotations:
+          summary: "No active peers on {{ $labels.instance }}"
+          description: "VPN server {{ $labels.instance }} has had no active peers for 30 minutes."
+
+      # Too Many Peers (capacity warning)
+      - alert: VPNHighPeerCount
+        expr: wireguard_peers > 150
+        for: 5m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "High peer count on {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has {{ $value }} active peers (75% capacity). Consider load balancing."
+
+      # Critical Peer Count (near capacity)
+      - alert: VPNCriticalPeerCount
+        expr: wireguard_peers > 180
+        for: 5m
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "Critical peer count on {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has {{ $value }} active peers (90% capacity). Immediate scaling required!"
+
+      # Server Capacity Utilization
+      - alert: VPNServerNearCapacity
+        expr: (node_load1 / count without(cpu) (node_cpu_seconds_total{mode="idle"})) > 0.7
+        for: 10m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "Server {{ $labels.instance }} approaching CPU capacity"
+          description: "CPU utilization at {{ $value | printf \"%.0f\" }}%. Consider adding servers or redistributing load."
+
+  - name: vpn_security
+    interval: 1m
+    rules:
+      # CrowdSec Agent Down
+      - alert: CrowdSecAgentDown
+        expr: up{job="crowdsec"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "CrowdSec agent down on {{ $labels.instance }}"
+          description: "CrowdSec security agent is not running on {{ $labels.instance }}."
+
+      # High Number of Blocked IPs
+      - alert: HighBlockedIPs
+        expr: crowdsec_decisions_total > 1000
+        for: 5m
+        labels:
+          severity: info
+          team: security
+        annotations:
+          summary: "High number of blocked IPs on {{ $labels.instance }}"
+          description: "{{ $value }} IPs are currently blocked on {{ $labels.instance }}."
+
+      # Fail2Ban Bans Spike
+      - alert: Fail2BanBansSpike
+        expr: rate(fail2ban_banned_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Fail2Ban ban rate spike on {{ $labels.instance }}"
+          description: "High rate of bans detected. Possible attack in progress."
+
+  - name: vpn_network
+    interval: 30s
+    rules:
+      # High Bandwidth Usage
+      - alert: VPNHighBandwidth
+        expr: sum by (instance) (rate(node_network_transmit_bytes_total{device=~"wg.*|awg.*|tun.*"}[5m])) * 8 > 800000000
+        for: 10m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "High bandwidth on {{ $labels.instance }}"
+          description: "Bandwidth usage is {{ $value | humanize }}bps on {{ $labels.instance }}."
+
+      # Network Errors
+      - alert: VPNNetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) > 10 or rate(node_network_transmit_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "Network errors on {{ $labels.instance }}"
+          description: "Network interface is experiencing errors on {{ $labels.instance }}."
+
+  - name: vpn_dns
+    interval: 30s
+    rules:
+      # CoreDNS Down
+      - alert: CoreDNSDown
+        expr: up{job="coredns"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "CoreDNS down on {{ $labels.instance }}"
+          description: "DNS service is not running on {{ $labels.instance }}. VPN clients may have DNS issues."
+
+      # High DNS Latency
+      - alert: HighDNSLatency
+        expr: histogram_quantile(0.99, rate(coredns_dns_request_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "High DNS latency on {{ $labels.instance }}"
+          description: "99th percentile DNS latency is {{ $value | printf \"%.2f\" }}s on {{ $labels.instance }}."
+
+  - name: vpn_certificates
+    interval: 1h
+    rules:
+      # Certificate Expiring Soon
+      - alert: VPNCertExpiringSoon
+        expr: (x509_cert_not_after - time()) / 86400 < 30
+        labels:
+          severity: warning
+          team: vpn-ops
+        annotations:
+          summary: "Certificate expiring soon on {{ $labels.instance }}"
+          description: "Certificate {{ $labels.cn }} expires in {{ $value | printf \"%.0f\" }} days."
+
+      # Certificate Expired
+      - alert: VPNCertExpired
+        expr: (x509_cert_not_after - time()) < 0
+        labels:
+          severity: critical
+          team: vpn-ops
+        annotations:
+          summary: "Certificate expired on {{ $labels.instance }}"
+          description: "Certificate {{ $labels.cn }} has expired!"

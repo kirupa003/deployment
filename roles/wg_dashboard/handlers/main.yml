@@ -1,0 +1,20 @@
+---
+# WireGuard Dashboard handlers
+
+- name: Restart WireGuard Dashboard
+  community.docker.docker_compose_v2:
+    project_src: "{{ wg_dashboard_data_dir }}"
+    state: present
+    recreate: always
+
+- name: Stop WireGuard Dashboard
+  community.docker.docker_compose_v2:
+    project_src: "{{ wg_dashboard_data_dir }}"
+    state: absent
+
+- name: Restart Gateway Sync
+  ansible.builtin.systemd:
+    name: gateway-sync
+    state: restarted
+    daemon_reload: true
+  when: vpn_central_sync_enabled | default(false)

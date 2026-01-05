@@ -1,0 +1,436 @@
+---
+# VPN Infrastructure Health Check Playbook
+# Comprehensive server and service validation
+# Requirements: 4.2, 4.4, 5.4
+
+- name: VPN Infrastructure Health Check
+  hosts: vpn_servers
+  become: yes
+  gather_facts: yes
+  serial: "{{ health_check_batch_size | default(10) }}"
+  
+  vars:
+    health_check_timestamp: "{{ ansible_date_time.epoch }}"
+    health_check_id: "health-{{ health_check_timestamp }}"
+    critical_services:
+      - ssh
+      - ufw
+      - fail2ban
+      - crowdsec
+      - node_exporter
+      - promtail
+      - coredns
+    vpn_services:
+      wireguard: "wg-quick@{{ wireguard_interface | default('wg0') }}"
+      openvpn: "openvpn@server"
+    monitoring_ports:
+      node_exporter: "{{ node_exporter_port | default(9100) }}"
+      wg_exporter: "{{ wg_exporter_port | default(9586) }}"
+      promtail: "{{ promtail_port | default(9080) }}"
+    
+  pre_tasks:
+    - name: Initialize health check report
+      set_fact:
+        health_report:
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          server: "{{ inventory_hostname }}"
+          region: "{{ group_names | select('match', '^(europe|north_america|asia_pacific)$') | first | default('unknown') }}"
+          protocols: "{{ group_names | select('match', '.*_(wireguard|openvpn)$') | list }}"
+          overall_status: "unknown"
+          checks: {}
+          
+    - name: Create health check log entry
+      lineinfile:
+        path: /var/log/health-checks.log
+        line: "{{ ansible_date_time.iso8601 }} - Starting health check {{ health_check_id }} on {{ inventory_hostname }}"
+        create: yes
+
+  tasks:
+    # System Health Checks
+    - name: System Resource Health Check
+      block:
+        - name: Check CPU usage
+          shell: |
+            top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1
+          register: cpu_usage
+          changed_when: false
+          
+        - name: Check memory usage
+          shell: |
+            free | grep Mem | awk '{printf "%.2f", $3/$2 * 100.0}'
+          register: memory_usage
+          changed_when: false
+          
+        - name: Check disk usage
+          shell: |
+            df -h / | awk 'NR==2 {print $5}' | cut -d'%' -f1
+          register: disk_usage
+          changed_when: false
+          
+        - name: Check system load
+          shell: |
+            uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | cut -d',' -f1
+          register: system_load
+          changed_when: false
+          
+        - name: Update health report - system resources
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'system_resources': {
+              'cpu_usage': cpu_usage.stdout | float,
+              'memory_usage': memory_usage.stdout | float,
+              'disk_usage': disk_usage.stdout | int,
+              'system_load': system_load.stdout | float,
+              'status': 'healthy' if (cpu_usage.stdout | float < 80 and memory_usage.stdout | float < 85 and disk_usage.stdout | int < 90) else 'warning'
+            }})}) }}"
+            
+      rescue:
+        - name: Mark system resources as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'system_resources': {'status': 'failed', 'error': 'Unable to collect system metrics'}})}) }}"
+
+    # Network Health Checks
+    - name: Network Connectivity Health Check
+      block:
+        - name: Check network interfaces
+          command: ip addr show
+          register: network_interfaces
+          changed_when: false
+          
+        - name: Test DNS resolution
+          command: nslookup google.com
+          register: dns_resolution
+          changed_when: false
+          
+        - name: Test internet connectivity
+          uri:
+            url: https://www.google.com
+            method: HEAD
+            timeout: 10
+          register: internet_connectivity
+          
+        - name: Check routing table
+          command: ip route show
+          register: routing_table
+          changed_when: false
+          
+        - name: Test VPN network interfaces
+          block:
+            - name: Check WireGuard interface
+              command: ip addr show {{ wireguard_interface | default('wg0') }}
+              register: wg_interface_check
+              when: "'wireguard' in group_names"
+              changed_when: false
+              
+            - name: Check OpenVPN interface
+              command: ip addr show tun0
+              register: ovpn_interface_check
+              when: "'openvpn' in group_names"
+              changed_when: false
+              
+        - name: Update health report - network
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'network': {
+              'dns_resolution': 'passed' if dns_resolution.rc == 0 else 'failed',
+              'internet_connectivity': 'passed' if internet_connectivity.status == 200 else 'failed',
+              'wg_interface': 'present' if (wg_interface_check is defined and wg_interface_check.rc == 0) else 'absent',
+              'ovpn_interface': 'present' if (ovpn_interface_check is defined and ovpn_interface_check.rc == 0) else 'absent',
+              'status': 'healthy' if (dns_resolution.rc == 0 and internet_connectivity.status == 200) else 'failed'
+            }})}) }}"
+            
+      rescue:
+        - name: Mark network as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'network': {'status': 'failed', 'error': 'Network connectivity issues detected'}})}) }}"
+
+    # Service Health Checks
+    - name: Critical Services Health Check
+      block:
+        - name: Check critical service status
+          systemd:
+            name: "{{ item }}"
+          register: critical_service_status
+          loop: "{{ critical_services }}"
+          
+        - name: Check VPN service status
+          systemd:
+            name: "{{ vpn_services[item] }}"
+          register: vpn_service_status
+          loop: "{{ vpn_services.keys() | list }}"
+          when: "item in group_names or (item == 'wireguard' and 'wireguard_servers' in group_names) or (item == 'openvpn' and 'openvpn_servers' in group_names)"
+          
+        - name: Test monitoring endpoints
+          uri:
+            url: "http://{{ ansible_default_ipv4.address }}:{{ monitoring_ports[item] }}/metrics"
+            method: GET
+            status_code: 200
+            timeout: 10
+          register: monitoring_endpoint_status
+          loop: "{{ monitoring_ports.keys() | list }}"
+          when: "item != 'wg_exporter' or 'wireguard_servers' in group_names"
+          
+        - name: Update health report - services
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'services': {
+              'critical_services': critical_service_status.results | map(attribute='state') | list,
+              'vpn_services': vpn_service_status.results | default([]) | map(attribute='state') | list,
+              'monitoring_endpoints': monitoring_endpoint_status.results | default([]) | map(attribute='status') | list,
+              'status': 'healthy' if (critical_service_status.results | map(attribute='state') | select('equalto', 'started') | list | length == critical_services | length) else 'failed'
+            }})}) }}"
+            
+      rescue:
+        - name: Mark services as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'services': {'status': 'failed', 'error': 'Service health check failed'}})}) }}"
+
+    # Security Health Checks
+    - name: Security Health Check
+      block:
+        - name: Check firewall status
+          command: ufw status
+          register: firewall_status
+          changed_when: false
+          
+        - name: Check SSH configuration
+          command: sshd -T
+          register: ssh_config_test
+          changed_when: false
+          
+        - name: Check for failed login attempts
+          shell: |
+            journalctl -u ssh --since "24 hours ago" | grep "Failed password" | wc -l
+          register: failed_logins
+          changed_when: false
+          
+        - name: Check CrowdSec decisions
+          command: cscli decisions list
+          register: crowdsec_decisions
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Check certificate expiration (OpenVPN)
+          block:
+            - name: Check server certificate
+              openssl_certificate_info:
+                path: /etc/openvpn/certs/server.crt
+              register: server_cert_info
+              when: "'openvpn_servers' in group_names"
+              
+            - name: Calculate certificate expiry days
+              set_fact:
+                cert_expiry_days: "{{ ((server_cert_info.not_after | to_datetime('%Y%m%d%H%M%SZ')) - (ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).days }}"
+              when: server_cert_info is defined and server_cert_info.not_after is defined
+              
+        - name: Update health report - security
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'security': {
+              'firewall_active': 'active' in firewall_status.stdout,
+              'ssh_config_valid': ssh_config_test.rc == 0,
+              'failed_logins_24h': failed_logins.stdout | int,
+              'crowdsec_active': crowdsec_decisions.rc == 0,
+              'cert_expiry_days': cert_expiry_days | default('N/A'),
+              'status': 'healthy' if ('active' in firewall_status.stdout and ssh_config_test.rc == 0 and failed_logins.stdout | int < 100) else 'warning'
+            }})}) }}"
+            
+      rescue:
+        - name: Mark security as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'security': {'status': 'failed', 'error': 'Security health check failed'}})}) }}"
+
+    # VPN-Specific Health Checks
+    - name: VPN Protocol Health Check
+      block:
+        - name: WireGuard health check
+          block:
+            - name: Check WireGuard status
+              command: wg show {{ wireguard_interface | default('wg0') }}
+              register: wg_status
+              changed_when: false
+              
+            - name: Count active WireGuard peers
+              shell: |
+                wg show {{ wireguard_interface | default('wg0') }} | grep -c "peer:"
+              register: wg_peer_count
+              changed_when: false
+              
+            - name: Test WireGuard Dashboard
+              uri:
+                url: "http://{{ ansible_default_ipv4.address }}:{{ wg_dashboard_port | default(10086) }}"
+                method: GET
+                status_code: 200
+                timeout: 10
+              register: wg_dashboard_status
+              when: wg_dashboard_enabled | default(true)
+              
+          when: "'wireguard_servers' in group_names"
+          
+        - name: OpenVPN health check
+          block:
+            - name: Check OpenVPN status
+              command: systemctl is-active openvpn@server
+              register: ovpn_status
+              changed_when: false
+              
+            - name: Check OpenVPN management interface
+              command: echo "status" | nc localhost 7505
+              register: ovpn_management_status
+              changed_when: false
+              ignore_errors: yes
+              
+            - name: Count active OpenVPN clients
+              shell: |
+                echo "status" | nc localhost 7505 | grep "CLIENT_LIST" | wc -l
+              register: ovpn_client_count
+              changed_when: false
+              ignore_errors: yes
+              
+          when: "'openvpn_servers' in group_names"
+          
+        - name: Update health report - VPN protocols
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'vpn_protocols': vpn_protocol_data})}) }}"
+          vars:
+            vpn_protocol_data:
+              wireguard: "{{ wireguard_data if 'wireguard_servers' in group_names else {} }}"
+              openvpn: "{{ openvpn_data if 'openvpn_servers' in group_names else {} }}"
+              status: 'healthy'
+            wireguard_data:
+              status: "{{ wg_status.rc if wg_status is defined else 'N/A' }}"
+              peer_count: "{{ wg_peer_count.stdout | default('0') | int }}"
+              dashboard: "{{ 'active' if (wg_dashboard_status is defined and wg_dashboard_status.status == 200) else 'inactive' }}"
+            openvpn_data:
+              status: "{{ ovpn_status.stdout if ovpn_status is defined else 'N/A' }}"
+              client_count: "{{ ovpn_client_count.stdout | default('0') | int }}"
+              management: "{{ 'active' if (ovpn_management_status is defined and ovpn_management_status.rc == 0) else 'inactive' }}"
+            
+      rescue:
+        - name: Mark VPN protocols as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'vpn_protocols': {'status': 'failed', 'error': 'VPN protocol health check failed'}})}) }}"
+
+    # Performance Health Checks
+    - name: Performance Health Check
+      block:
+        - name: Check network throughput
+          shell: |
+            iperf3 -c speedtest.net -t 5 -f M | grep "receiver" | awk '{print $7}'
+          register: network_throughput
+          changed_when: false
+          ignore_errors: yes
+          
+        - name: Check disk I/O performance
+          shell: |
+            dd if=/dev/zero of=/tmp/test_file bs=1M count=100 oflag=direct 2>&1 | grep "MB/s" | awk '{print $(NF-1)}'
+          register: disk_io_performance
+          changed_when: false
+          
+        - name: Clean up test file
+          file:
+            path: /tmp/test_file
+            state: absent
+            
+        - name: Check process count
+          shell: |
+            ps aux | wc -l
+          register: process_count
+          changed_when: false
+          
+        - name: Update health report - performance
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'performance': {
+              'network_throughput_mbps': network_throughput.stdout | default('0') | float,
+              'disk_io_mbps': disk_io_performance.stdout | default('0') | float,
+              'process_count': process_count.stdout | int,
+              'status': 'healthy' if (process_count.stdout | int < 500) else 'warning'
+            }})}) }}"
+            
+      rescue:
+        - name: Mark performance as failed
+          set_fact:
+            health_report: "{{ health_report | combine({'checks': health_report.checks | combine({'performance': {'status': 'failed', 'error': 'Performance health check failed'}})}) }}"
+
+  post_tasks:
+    - name: Calculate overall health status
+      set_fact:
+        overall_status: >-
+          {%- set failed_checks = health_report.checks.values() | selectattr('status', 'equalto', 'failed') | list -%}
+          {%- set warning_checks = health_report.checks.values() | selectattr('status', 'equalto', 'warning') | list -%}
+          {%- if failed_checks | length > 0 -%}
+            failed
+          {%- elif warning_checks | length > 0 -%}
+            warning
+          {%- else -%}
+            healthy
+          {%- endif -%}
+          
+    - name: Update health report with overall status
+      set_fact:
+        health_report: "{{ health_report | combine({'overall_status': overall_status}) }}"
+        
+    - name: Generate health check report
+      template:
+        src: health-check-report.j2
+        dest: "/tmp/health-check-{{ health_check_id }}-{{ inventory_hostname }}.json"
+      vars:
+        report_data: "{{ health_report }}"
+        
+    - name: Log health check completion
+      lineinfile:
+        path: /var/log/health-checks.log
+        line: "{{ ansible_date_time.iso8601 }} - Completed health check {{ health_check_id }} on {{ inventory_hostname }} - Status: {{ overall_status }}"
+        
+    - name: Send alert for failed health checks
+      mail:
+        to: "{{ ops_email | default('ops@example.com') }}"
+        subject: "Health Check {{ overall_status.upper() }} - {{ inventory_hostname }}"
+        body: |
+          Health check completed for {{ inventory_hostname }}
+          
+          Overall Status: {{ overall_status.upper() }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          Region: {{ health_report.region }}
+          
+          {% for check_name, check_data in health_report.checks.items() %}
+          {{ check_name }}: {{ check_data.status }}
+          {% endfor %}
+          
+          Full report: /tmp/health-check-{{ health_check_id }}-{{ inventory_hostname }}.json
+      delegate_to: localhost
+      when: 
+        - overall_status in ['failed', 'warning']
+        - notify_on_health_issues | default(true)
+
+# Aggregate health check results
+- name: Aggregate Health Check Results
+  hosts: localhost
+  gather_facts: no
+  run_once: true
+  
+  tasks:
+    - name: Collect all health check reports
+      find:
+        paths: /tmp
+        patterns: "health-check-{{ hostvars[groups['vpn_servers'][0]]['health_check_id'] }}-*.json"
+      register: health_reports
+      
+    - name: Generate infrastructure health summary
+      template:
+        src: infrastructure-health-summary.j2
+        dest: "/tmp/infrastructure-health-summary-{{ hostvars[groups['vpn_servers'][0]]['health_check_id'] }}.json"
+      vars:
+        report_files: "{{ health_reports.files }}"
+        total_servers: "{{ groups['vpn_servers'] | length }}"
+        
+    - name: Send infrastructure health summary
+      mail:
+        to: "{{ management_email | default('management@example.com') }}"
+        subject: "VPN Infrastructure Health Summary - {{ ansible_date_time.date }}"
+        body: |
+          Daily VPN infrastructure health check completed.
+          
+          Total servers checked: {{ groups['vpn_servers'] | length }}
+          Timestamp: {{ ansible_date_time.iso8601 }}
+          
+          Summary report: /tmp/infrastructure-health-summary-{{ hostvars[groups['vpn_servers'][0]]['health_check_id'] }}.json
+          
+          Please review the detailed reports for any issues requiring attention.
+      when: send_daily_summary | default(true)

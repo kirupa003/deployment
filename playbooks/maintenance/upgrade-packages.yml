@@ -1,0 +1,89 @@
+---
+# Upgrade packages on VPN servers (rolling update)
+# Usage: ansible-playbook playbooks/maintenance/upgrade-packages.yml
+
+- name: Rolling Package Upgrade
+  hosts: vpn_servers
+  become: true
+  gather_facts: true
+  serial: "{{ upgrade_batch_size | default(10) }}"
+  max_fail_percentage: 10
+
+  vars:
+    reboot_required: false
+    upgrade_security_only: true
+
+  pre_tasks:
+    - name: Check current uptime
+      ansible.builtin.command:
+        cmd: uptime
+      register: server_uptime
+      changed_when: false
+
+    - name: Display server info
+      ansible.builtin.debug:
+        msg: "Upgrading {{ inventory_hostname }} - Uptime: {{ server_uptime.stdout }}"
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 0
+      tags: [update]
+
+    - name: Upgrade all packages
+      ansible.builtin.apt:
+        upgrade: "{{ 'safe' if upgrade_security_only else 'full' }}"
+      register: upgrade_result
+      tags: [upgrade]
+
+    - name: Check if reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+      tags: [reboot]
+
+    - name: Display upgrade summary
+      ansible.builtin.debug:
+        msg: |
+          Packages upgraded: {{ upgrade_result.stdout_lines | default([]) | length }}
+          Reboot required: {{ reboot_required_file.stat.exists }}
+      tags: [summary]
+
+    - name: Reboot if required and allowed
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        msg: "Rebooting for kernel/system upgrade"
+      when:
+        - reboot_required_file.stat.exists
+        - reboot_allowed | default(false)
+      tags: [reboot]
+
+  post_tasks:
+    - name: Verify VPN service after upgrade
+      ansible.builtin.systemd:
+        name: "{{ vpn_service_name }}"
+        state: started
+      vars:
+        vpn_service_name: >-
+          {%- if vpn_protocol == 'wireguard' -%}
+          wg-quick@{{ wireguard_interface | default('wg0') }}
+          {%- elif vpn_protocol == 'amneziawg' -%}
+          awg-quick@{{ amneziawg_interface | default('awg0') }}
+          {%- elif vpn_protocol == 'openvpn' -%}
+          openvpn-server@server-tcp
+          {%- endif -%}
+      tags: [verify]
+
+    - name: Verify monitoring is working
+      ansible.builtin.uri:
+        url: "http://localhost:{{ node_exporter_port | default(9100) }}/metrics"
+        method: GET
+        status_code: 200
+      tags: [verify]
+
+    - name: Wait before processing next batch
+      ansible.builtin.pause:
+        seconds: 30
+      when: not ansible_check_mode
+      tags: [wait]

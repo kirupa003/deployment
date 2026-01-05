@@ -1,0 +1,43 @@
+---
+# WireGuard Role Handlers
+
+- name: restart wireguard
+  systemd:
+    name: "wg-quick@{{ wireguard_interface }}"
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload wireguard
+  command: "wg-quick down {{ wireguard_interface }} && wg-quick up {{ wireguard_interface }}"
+  become: true
+  ignore_errors: true
+
+- name: restart wireguard dashboard
+  docker_compose:
+    project_src: "{{ wg_dashboard_data_dir }}"
+    state: present
+    restarted: true
+  become: true
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+  become: true
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+  become: true
+
+- name: apply sysctl
+  command: sysctl -p
+  become: true
+
+- name: restart ufw
+  systemd:
+    name: ufw
+    state: restarted
+  become: true
+  when: wireguard_firewall_enabled

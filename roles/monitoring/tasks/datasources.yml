@@ -1,0 +1,81 @@
+---
+- name: Create data source provisioning directory
+  file:
+    path: "{{ monitoring_provisioning_dir }}/datasources"
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: '0755'
+  become: true
+
+- name: Generate data source provisioning configuration
+  template:
+    src: datasource-provisioning.yml.j2
+    dest: "{{ monitoring_provisioning_dir }}/datasources/vpn-datasources.yml"
+    owner: grafana
+    group: grafana
+    mode: '0644'
+  become: true
+  notify: reload grafana
+
+- name: Wait for Grafana to be ready
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/health"
+    method: GET
+    status_code: 200
+  register: grafana_health
+  retries: 30
+  delay: 10
+  until: grafana_health.status == 200
+
+- name: Check if data sources are configured via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/datasources"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+    status_code: 200
+  register: existing_datasources
+  when: monitoring_grafana_api_key != ""
+
+- name: Configure VictoriaMetrics data source via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/datasources"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "VictoriaMetrics"
+      type: "prometheus"
+      url: "{{ monitoring_victoriametrics_url }}"
+      access: "proxy"
+      isDefault: true
+      jsonData:
+        httpMethod: "POST"
+        timeInterval: "30s"
+    status_code: [200, 409]  # 409 if already exists
+  when: 
+    - monitoring_grafana_api_key != ""
+    - existing_datasources.json | selectattr('name', 'equalto', 'VictoriaMetrics') | list | length == 0
+
+- name: Configure Loki data source via API
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/datasources"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "Loki"
+      type: "loki"
+      url: "{{ monitoring_loki_url }}"
+      access: "proxy"
+      jsonData:
+        maxLines: 1000
+    status_code: [200, 409]
+  when: 
+    - monitoring_grafana_api_key != ""
+    - existing_datasources.json | selectattr('name', 'equalto', 'Loki') | list | length == 0

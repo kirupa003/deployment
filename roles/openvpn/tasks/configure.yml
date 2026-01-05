@@ -1,0 +1,97 @@
+---
+# OpenVPN Server Configuration
+
+- name: Generate OpenVPN server configuration (UDP)
+  template:
+    src: server.conf.j2
+    dest: "{{ _openvpn_server_config_udp }}"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  become: true
+  vars:
+    openvpn_current_protocol: udp
+    openvpn_current_port: "{{ openvpn_port_udp }}"
+  notify: restart openvpn udp
+  when: openvpn_protocol in ['udp', 'both']
+
+- name: Generate OpenVPN server configuration (TCP)
+  template:
+    src: server.conf.j2
+    dest: "{{ _openvpn_server_config_tcp }}"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  become: true
+  vars:
+    openvpn_current_protocol: tcp
+    openvpn_current_port: "{{ openvpn_port_tcp }}"
+  notify: restart openvpn tcp
+  when: openvpn_protocol in ['tcp', 'both']
+
+- name: Create client configuration directory structure
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ openvpn_client_config_dir }}/active"
+    - "{{ openvpn_client_config_dir }}/revoked"
+    - "{{ openvpn_client_template_dir }}"
+
+- name: Create client configuration template
+  template:
+    src: client.ovpn.j2
+    dest: "{{ openvpn_client_template_dir }}/client.ovpn.j2"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Create client database file
+  copy:
+    content: |
+      # OpenVPN Client Database
+      # Format: client_name,serial_number,created_date,expiry_date,status
+    dest: "{{ openvpn_client_config_dir }}/clients.db"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  become: true
+
+- name: Create OpenVPN status monitoring script
+  template:
+    src: openvpn-status.sh.j2
+    dest: /usr/local/bin/openvpn-status
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Create OpenVPN log rotation configuration
+  copy:
+    content: |
+      {{ openvpn_log_dir }}/*.log {
+          daily
+          missingok
+          rotate 30
+          compress
+          delaycompress
+          notifempty
+          create 0644 root root
+          postrotate
+              systemctl reload openvpn@server-udp > /dev/null 2>&1 || true
+              systemctl reload openvpn@server-tcp > /dev/null 2>&1 || true
+          endscript
+      }
+    dest: /etc/logrotate.d/openvpn
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

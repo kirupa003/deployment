@@ -1,0 +1,129 @@
+---
+# SSH Key Rotation Playbook
+# Rotates SSH keys across all VPN servers
+# Usage: ansible-playbook playbooks/security/ssh-key-rotation.yml -e "new_key_file=files/ssh/vpn-infra-new.pub"
+
+- name: Rotate SSH Keys
+  hosts: all
+  gather_facts: false
+  become: true
+  serial: "{{ rotation_batch_size | default('20%') }}"
+
+  vars:
+    old_key_file: "{{ playbook_dir }}/../../files/ssh/vpn-infra.pub"
+    new_key_file: "{{ new_ssh_key | default(playbook_dir + '/../../files/ssh/vpn-infra-new.pub') }}"
+    ansible_service_user: "{{ service_user | default('root') }}"
+    remove_old_key: "{{ do_remove_old | default(false) }}"
+    verify_new_key: "{{ do_verify | default(true) }}"
+
+  pre_tasks:
+    - name: Validate new key file exists
+      stat:
+        path: "{{ new_key_file }}"
+      delegate_to: localhost
+      become: false
+      register: new_key_stat
+      run_once: true
+
+    - name: Fail if new key file doesn't exist
+      fail:
+        msg: "New SSH key file not found: {{ new_key_file }}. Generate it first with ./scripts/ssh-key-setup.sh vpn-infra-new"
+      when: not new_key_stat.stat.exists
+      run_once: true
+
+    - name: Read new public key
+      set_fact:
+        new_ssh_public_key: "{{ lookup('file', new_key_file) }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Read old public key (if exists)
+      set_fact:
+        old_ssh_public_key: "{{ lookup('file', old_key_file, errors='ignore') | default('') }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      when: remove_old_key | bool
+
+  tasks:
+    - name: Wait for SSH to become available
+      wait_for_connection:
+        timeout: 30
+
+    - name: Add new SSH public key
+      authorized_key:
+        user: "{{ ansible_service_user }}"
+        key: "{{ new_ssh_public_key }}"
+        state: present
+        exclusive: false
+      register: key_added
+
+    - name: Verify new key works
+      when: verify_new_key | bool and key_added.changed
+      block:
+        - name: Test SSH connection with new key
+          command: >
+            ssh -i {{ new_key_file | replace('.pub', '') }}
+            -o PasswordAuthentication=no
+            -o StrictHostKeyChecking=no
+            -o ConnectTimeout=10
+            {{ ansible_service_user }}@{{ ansible_host }}
+            echo "New key verified"
+          delegate_to: localhost
+          become: false
+          register: new_key_test
+          changed_when: false
+          ignore_errors: true
+
+        - name: Fail if new key doesn't work
+          fail:
+            msg: "New SSH key verification failed for {{ inventory_hostname }}. Keeping old key."
+          when: new_key_test.rc != 0
+
+    - name: Remove old SSH key
+      when: remove_old_key | bool and old_ssh_public_key | length > 0
+      authorized_key:
+        user: "{{ ansible_service_user }}"
+        key: "{{ old_ssh_public_key }}"
+        state: absent
+
+    - name: Report rotation status
+      debug:
+        msg: "SSH key rotated successfully on {{ inventory_hostname }}"
+
+  post_tasks:
+    - name: Display rotation summary
+      debug:
+        msg: |
+          SSH Key Rotation Complete for {{ inventory_hostname }}
+          - New key added: {{ key_added.changed }}
+          - Old key removed: {{ remove_old_key | bool }}
+      run_once: true
+
+
+- name: Post-rotation Verification
+  hosts: all
+  gather_facts: false
+  become: false
+
+  vars:
+    new_key_file: "{{ new_ssh_key | default(playbook_dir + '/../../files/ssh/vpn-infra-new.pub') }}"
+    private_key: "{{ new_key_file | replace('.pub', '') }}"
+
+  tasks:
+    - name: Final verification of SSH access
+      command: >
+        ssh -i {{ private_key }}
+        -o PasswordAuthentication=no
+        -o BatchMode=yes
+        -o ConnectTimeout=10
+        {{ ansible_user | default('root') }}@{{ ansible_host }}
+        hostname
+      delegate_to: localhost
+      register: final_check
+      changed_when: false
+
+    - name: Report final status
+      debug:
+        msg: "Final verification passed for {{ inventory_hostname }}: {{ final_check.stdout }}"

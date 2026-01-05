@@ -1,0 +1,58 @@
+---
+# System Configuration for WireGuard
+
+- name: Configure kernel parameters for WireGuard
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-wireguard.conf
+  become: true
+  loop: "{{ wireguard_kernel_params | dict2items }}"
+  notify: apply sysctl
+
+- name: Ensure IP forwarding is enabled
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Enable IPv6 forwarding if needed
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    state: present
+    reload: true
+  become: true
+  when: ansible_default_ipv6 is defined
+
+- name: Create systemd override directory
+  file:
+    path: "{{ _wireguard_systemd_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Configure systemd service override
+  copy:
+    content: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStartPre=/bin/bash -c 'until ping -c1 8.8.8.8; do sleep 1; done'
+      TimeoutStartSec=300
+    dest: "{{ _wireguard_systemd_path }}/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify: reload systemd

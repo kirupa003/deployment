@@ -1,0 +1,53 @@
+---
+# WireGuard Package Installation
+
+- name: Update package cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Install WireGuard packages
+  apt:
+    name: "{{ _wireguard_packages[ansible_distribution] | default(wireguard_packages) }}"
+    state: present
+  become: true
+  notify: reload systemd
+
+- name: Create WireGuard directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+  loop:
+    - "{{ wireguard_config_dir }}"
+    - "{{ wireguard_keys_dir }}"
+    - "{{ client_config_dir }}"
+    - "{{ client_qr_dir }}"
+
+- name: Check if WireGuard kernel module is available
+  command: modinfo wireguard
+  register: wireguard_module_check
+  failed_when: false
+  changed_when: false
+
+- name: Load WireGuard kernel module
+  modprobe:
+    name: wireguard
+    state: present
+  become: true
+  when: wireguard_module_check.rc == 0
+
+- name: Add WireGuard module to load at boot
+  lineinfile:
+    path: /etc/modules-load.d/wireguard.conf
+    line: wireguard
+    create: true
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  when: wireguard_module_check.rc == 0

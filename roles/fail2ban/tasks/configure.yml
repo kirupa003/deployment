@@ -1,0 +1,79 @@
+---
+- name: Configure Fail2Ban
+  block:
+    - name: Create main fail2ban configuration
+      template:
+        src: fail2ban.local.j2
+        dest: /etc/fail2ban/fail2ban.local
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+      notify: restart fail2ban
+
+    - name: Create jail configuration
+      template:
+        src: jail.local.j2
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+      notify: restart fail2ban
+
+    - name: Create custom WireGuard filter
+      template:
+        src: wireguard.conf.j2
+        dest: /etc/fail2ban/filter.d/wireguard.conf
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: restart fail2ban
+
+    - name: Create custom OpenVPN filter enhancements
+      template:
+        src: openvpn-custom.conf.j2
+        dest: /etc/fail2ban/filter.d/openvpn-custom.conf
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: restart fail2ban
+
+    - name: Create SSH hardening filter
+      template:
+        src: sshd-aggressive.conf.j2
+        dest: /etc/fail2ban/filter.d/sshd-aggressive.conf
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: restart fail2ban
+
+    - name: Create custom action for CrowdSec integration
+      template:
+        src: crowdsec.conf.j2
+        dest: /etc/fail2ban/action.d/crowdsec.conf
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: restart fail2ban
+      when: crowdsec_enabled | default(false)
+
+    - name: Create notification action
+      template:
+        src: notification.conf.j2
+        dest: /etc/fail2ban/action.d/notification.conf
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: restart fail2ban
+
+  tags:
+    - fail2ban
+    - configure

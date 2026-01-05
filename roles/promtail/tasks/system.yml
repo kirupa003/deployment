@@ -1,0 +1,48 @@
+---
+- name: Create promtail group
+  group:
+    name: "{{ promtail_group }}"
+    system: true
+    state: present
+  become: true
+
+- name: Create promtail user
+  user:
+    name: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ promtail_data_dir }}"
+    createhome: false
+    state: present
+  become: true
+
+- name: Add promtail user to adm group for log access
+  user:
+    name: "{{ promtail_user }}"
+    groups: adm
+    append: true
+  become: true
+
+- name: Create promtail directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ promtail_user }}"
+    group: "{{ promtail_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ promtail_config_dir }}"
+    - "{{ promtail_data_dir }}"
+    - "{{ promtail_log_dir }}"
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - tar
+      - gzip
+      - unzip
+    state: present
+  become: true

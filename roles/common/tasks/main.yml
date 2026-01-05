@@ -1,0 +1,91 @@
+---
+# Common tasks for all servers
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+  tags: [common, hostname]
+
+- name: Configure timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+  tags: [common, timezone]
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+  tags: [common, packages]
+
+- name: Install common packages
+  ansible.builtin.apt:
+    name: "{{ packages_common }}"
+    state: present
+  when: ansible_os_family == "Debian"
+  tags: [common, packages]
+
+- name: Configure NTP servers
+  ansible.builtin.template:
+    src: timesyncd.conf.j2
+    dest: /etc/systemd/timesyncd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-timesyncd
+  tags: [common, ntp]
+
+- name: Enable and start systemd-timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: started
+    enabled: true
+  tags: [common, ntp]
+
+- name: Configure sysctl for network performance
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { key: 'net.ipv4.ip_forward', value: '1' }
+    - { key: 'net.ipv4.conf.all.forwarding', value: '1' }
+    - { key: 'net.core.rmem_max', value: '26214400' }
+    - { key: 'net.core.wmem_max', value: '26214400' }
+    - { key: 'net.core.rmem_default', value: '1048576' }
+    - { key: 'net.core.wmem_default', value: '1048576' }
+    - { key: 'net.core.netdev_max_backlog', value: '65536' }
+    - { key: 'net.ipv4.tcp_rmem', value: '4096 1048576 26214400' }
+    - { key: 'net.ipv4.tcp_wmem', value: '4096 65536 26214400' }
+    - { key: 'net.ipv4.tcp_congestion_control', value: 'bbr' }
+    - { key: 'net.core.default_qdisc', value: 'fq' }
+  tags: [common, sysctl]
+
+- name: Create ansible user
+  ansible.builtin.user:
+    name: ansible
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+  tags: [common, users]
+
+- name: Configure sudoers for ansible user
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers.d/ansible
+    line: 'ansible ALL=(ALL) NOPASSWD:ALL'
+    create: true
+    mode: "0440"
+    validate: 'visudo -cf %s'
+  tags: [common, users]
+
+- name: Create log directory
+  ansible.builtin.file:
+    path: /var/log/vpn-infrastructure
+    state: directory
+    owner: root
+    group: adm
+    mode: "0750"
+  tags: [common, logging]

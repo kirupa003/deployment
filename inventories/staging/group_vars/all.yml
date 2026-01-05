@@ -1,0 +1,55 @@
+---
+# Staging Environment - Global Variables
+# Consolidated configuration for testing VPN infrastructure
+
+# Environment Configuration
+environment:
+  name: "staging"
+  type: "testing"
+  region: "local"
+
+# Infrastructure Settings
+infrastructure:
+  deployment_mode: "staging"
+  monitoring_enabled: true
+  security_hardening: false
+  vault_integration: false
+  backup_enabled: false
+
+# Network Configuration
+network:
+  dns_servers:
+    - "8.8.8.8"
+    - "8.8.4.4"
+  ntp_servers:
+    - "pool.ntp.org"
+
+# Monitoring Configuration (Simplified for staging)
+monitoring:
+  enabled: true
+  node_exporter:
+    enabled: true
+    port: 9100
+  prometheus:
+    enabled: false  # Disabled for staging simplicity
+  grafana:
+    enabled: false  # Disabled for staging simplicity
+
+# Security Configuration (Relaxed for staging)
+security:
+  fail2ban_enabled: false
+  crowdsec_enabled: false
+  hardening_enabled: false
+  firewall_strict: false
+
+# Logging Configuration
+logging:
+  level: "debug"
+  retention_days: 7
+  centralized: false
+
+# Performance Settings
+performance:
+  max_connections: 50
+  timeout_seconds: 60
+  retry_attempts: 3

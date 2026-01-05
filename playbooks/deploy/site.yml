@@ -1,0 +1,96 @@
+---
+# Master playbook for full VPN server deployment
+# Usage: ansible-playbook playbooks/deploy/site.yml
+
+- name: Deploy VPN Infrastructure
+  hosts: vpn_servers
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify connectivity
+      ansible.builtin.ping:
+
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+
+  roles:
+    # Base configuration
+    - role: common
+      tags: [common]
+
+    - role: hardening
+      tags: [hardening, security]
+
+    # VPN protocol (conditional)
+    - role: wireguard
+      when: vpn_protocol == 'wireguard'
+      tags: [vpn, wireguard]
+
+    - role: amneziawg
+      when: vpn_protocol == 'amneziawg'
+      tags: [vpn, amneziawg]
+
+    - role: openvpn
+      when: vpn_protocol == 'openvpn'
+      tags: [vpn, openvpn]
+
+    # DNS
+    - role: coredns
+      when: coredns_enabled | default(true)
+      tags: [dns, coredns]
+
+    - role: fluent_bit
+      when: fluent_bit_enabled | default(true)
+      tags: [dns, fluent_bit, logging]
+
+    # Monitoring
+    - role: node_exporter
+      when: node_exporter_enabled | default(true)
+      tags: [monitoring, node_exporter]
+
+    - role: wg_exporter
+      when: wg_exporter_enabled | default(true) and vpn_protocol in ['wireguard', 'amneziawg']
+      tags: [monitoring, wg_exporter]
+
+    - role: promtail
+      when: promtail_enabled | default(true)
+      tags: [monitoring, promtail, logging]
+
+    # Security
+    - role: crowdsec
+      when: crowdsec_agent_enabled | default(true)
+      tags: [security, crowdsec]
+
+    - role: fail2ban
+      when: fail2ban_enabled | default(true)
+      tags: [security, fail2ban]
+
+  post_tasks:
+    - name: Verify VPN service is running
+      ansible.builtin.systemd:
+        name: "{{ vpn_service_name }}"
+        state: started
+      vars:
+        vpn_service_name: >-
+          {%- if vpn_protocol == 'wireguard' -%}
+          wg-quick@{{ wireguard_interface | default('wg0') }}
+          {%- elif vpn_protocol == 'amneziawg' -%}
+          awg-quick@{{ amneziawg_interface | default('awg0') }}
+          {%- elif vpn_protocol == 'openvpn' -%}
+          openvpn-server@server-tcp
+          {%- endif -%}
+      tags: [verify]
+
+    - name: Verify monitoring agents
+      ansible.builtin.uri:
+        url: "http://localhost:{{ item.port }}/metrics"
+        method: GET
+        status_code: 200
+      loop:
+        - { name: node_exporter, port: "{{ node_exporter_port | default(9100) }}" }
+      tags: [verify, monitoring]

@@ -1,0 +1,109 @@
+---
+- name: Check Grafana service status
+  systemd:
+    name: grafana-server
+  register: grafana_service_status
+  become: true
+
+- name: Verify Grafana is running
+  assert:
+    that:
+      - grafana_service_status.status.ActiveState == "active"
+      - grafana_service_status.status.SubState == "running"
+    fail_msg: "Grafana service is not running properly"
+    success_msg: "Grafana service is running correctly"
+
+- name: Test Grafana API health
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/health"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: grafana_health_test
+  retries: 3
+  delay: 5
+
+- name: Verify Grafana health
+  assert:
+    that:
+      - grafana_health_test.status == 200
+      - grafana_health_test.json.database == "ok"
+    fail_msg: "Grafana health check failed"
+    success_msg: "Grafana is healthy"
+
+- name: Check data sources configuration
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/datasources"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+    status_code: 200
+  register: datasources_check
+  when: monitoring_grafana_api_key != ""
+
+- name: Verify data sources are configured
+  assert:
+    that:
+      - datasources_check.json | length > 0
+      - datasources_check.json | selectattr('name', 'equalto', 'VictoriaMetrics') | list | length > 0
+    fail_msg: "Required data sources are not configured"
+    success_msg: "Data sources are properly configured"
+  when: monitoring_grafana_api_key != ""
+
+- name: Check dashboards configuration
+  uri:
+    url: "{{ monitoring_grafana_url }}/api/search?type=dash-db"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ monitoring_grafana_api_key }}"
+    status_code: 200
+  register: dashboards_check
+  when: monitoring_grafana_api_key != ""
+
+- name: Verify dashboards are loaded
+  assert:
+    that:
+      - dashboards_check.json | length > 0
+    fail_msg: "No dashboards found in Grafana"
+    success_msg: "Dashboards are properly loaded"
+  when: monitoring_grafana_api_key != ""
+
+- name: Test VictoriaMetrics connectivity
+  uri:
+    url: "{{ monitoring_victoriametrics_url }}/api/v1/query?query=up"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: victoriametrics_test
+  retries: 3
+  delay: 5
+
+- name: Test Loki connectivity
+  uri:
+    url: "{{ monitoring_loki_url }}/ready"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: loki_test
+  retries: 3
+  delay: 5
+
+- name: Verify monitoring stack connectivity
+  assert:
+    that:
+      - victoriametrics_test.status == 200
+      - loki_test.status == 200
+    fail_msg: "Monitoring stack components are not accessible"
+    success_msg: "All monitoring stack components are accessible"
+
+- name: Display monitoring configuration summary
+  debug:
+    msg:
+      - "Grafana Status: {{ grafana_service_status.status.ActiveState }}"
+      - "Grafana URL: {{ monitoring_grafana_url }}"
+      - "VictoriaMetrics URL: {{ monitoring_victoriametrics_url }}"
+      - "Loki URL: {{ monitoring_loki_url }}"
+      - "Dashboards Directory: {{ monitoring_dashboards_dir }}"
+      - "Alerts Enabled: {{ monitoring_alerts_enabled }}"
+      - "Configured Dashboards: {{ monitoring_dashboards | length }}"
+      - "Configured Alert Rules: {{ monitoring_alert_rules | length }}"

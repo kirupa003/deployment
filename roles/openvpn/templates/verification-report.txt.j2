@@ -1,0 +1,96 @@
+OpenVPN Installation Verification Report
+=======================================
+
+Generated: {{ ansible_date_time.iso8601 }}
+Server: {{ inventory_hostname }}
+Ansible User: {{ ansible_user }}
+
+Configuration Summary:
+---------------------
+Protocol: {{ openvpn_protocol | upper }}
+{% if openvpn_protocol in ['udp', 'both'] %}
+UDP Port: {{ openvpn_port_udp }}
+{% endif %}
+{% if openvpn_protocol in ['tcp', 'both'] %}
+TCP Port: {{ openvpn_port_tcp }}
+{% endif %}
+Server Network: {{ openvpn_server_network }}/{{ openvpn_server_netmask | ansible.utils.ipaddr('prefix') }}
+Max Clients: {{ openvpn_max_clients }}
+Cipher: {{ openvpn_cipher }}
+Authentication: {{ openvpn_auth }}
+
+Service Status:
+--------------
+{% if openvpn_protocol in ['udp', 'both'] %}
+UDP Service: {{ openvpn_udp_status.status.ActiveState | default('Unknown') }}
+{% endif %}
+{% if openvpn_protocol in ['tcp', 'both'] %}
+TCP Service: {{ openvpn_tcp_status.status.ActiveState | default('Unknown') }}
+{% endif %}
+Running Processes: {{ openvpn_processes.stdout_lines | length }}
+
+PKI Status:
+----------
+CA Certificate: {{ 'Present' if ca_cert_check.stat.exists else 'Missing' }}
+Server Certificate: {{ 'Present' if server_cert_check.stat.exists else 'Missing' }}
+Certificate Authority: {{ openvpn_ca_org }}
+Key Size: {{ openvpn_key_size }} bits
+Certificate Validity: {{ openvpn_cert_expire }} days
+
+Security Features:
+-----------------
+TLS Authentication: {{ 'Enabled' if openvpn_tls_auth else 'Disabled' }}
+TLS Crypt: {{ 'Enabled' if openvpn_tls_crypt else 'Disabled' }}
+CRL Verification: {{ 'Enabled' if openvpn_crl_enabled else 'Disabled' }}
+Minimum TLS Version: {{ openvpn_tls_version_min }}
+
+Network Configuration:
+---------------------
+Device Type: {{ openvpn_dev }}
+Topology: {{ openvpn_topology }}
+MTU: {{ openvpn_mtu }}
+DNS Push: {{ 'Enabled' if openvpn_push_dns else 'Disabled' }}
+Gateway Redirect: {{ 'Enabled' if openvpn_redirect_gateway else 'Disabled' }}
+
+Firewall Status:
+---------------
+{% if openvpn_firewall_enabled %}
+UFW Status: {{ ufw_status.stdout_lines[0] if ufw_status.stdout_lines else 'Unknown' }}
+{% else %}
+UFW: Disabled
+{% endif %}
+
+Management Interface:
+--------------------
+{% if openvpn_management_enabled %}
+Enabled: Yes
+Address: {{ openvpn_management_ip }}:{{ openvpn_management_port }}
+{% else %}
+Enabled: No
+{% endif %}
+
+Client Management:
+-----------------
+Config Directory: {{ openvpn_client_config_dir }}
+CCD Directory: {{ openvpn_ccd_dir }}
+
+Management Commands:
+-------------------
+Add Client: ovpn-add-client <name>
+Remove Client: ovpn-remove-client <name>
+Revoke Client: ovpn-revoke-client <name>
+List Clients: ovpn-list-clients
+Server Status: ovpn-stats
+
+Log Files:
+---------
+{% if openvpn_protocol in ['udp', 'both'] %}
+UDP Log: {{ openvpn_log_file }}-udp
+UDP Status: {{ openvpn_status_log }}-udp
+{% endif %}
+{% if openvpn_protocol in ['tcp', 'both'] %}
+TCP Log: {{ openvpn_log_file }}-tcp
+TCP Status: {{ openvpn_status_log }}-tcp
+{% endif %}
+
+Installation Complete: {{ ansible_date_time.iso8601 }}

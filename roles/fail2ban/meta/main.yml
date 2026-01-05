@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: Fail2Ban intrusion prevention system for VPN servers
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - security
+    - fail2ban
+    - intrusion-prevention
+    - vpn
+
+dependencies: []

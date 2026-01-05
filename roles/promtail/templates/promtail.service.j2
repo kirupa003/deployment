@@ -1,0 +1,39 @@
+[Unit]
+Description=Promtail Log Shipping Agent
+Documentation=https://grafana.com/docs/loki/latest/clients/promtail/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ promtail_user }}
+Group={{ promtail_group }}
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart={{ promtail_binary_path }} \
+  -config.file={{ promtail_config_dir }}/promtail.yml \
+  -server.http-listen-port={{ promtail_port }} \
+  -server.http-listen-address={{ promtail_listen_address }}
+
+SyslogIdentifier=promtail
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+# Security settings
+ProtectHome=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=yes
+
+# Allow access to log files
+ReadOnlyPaths=/var/log
+ReadWritePaths={{ promtail_data_dir }}
+ReadWritePaths={{ promtail_log_dir }}
+
+# Environment
+EnvironmentFile=-/etc/default/promtail
+
+[Install]
+WantedBy=multi-user.target

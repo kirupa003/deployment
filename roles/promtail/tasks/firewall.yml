@@ -1,0 +1,22 @@
+---
+- name: Allow promtail port through UFW
+  ufw:
+    rule: allow
+    port: "{{ promtail_port }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Promtail metrics and API"
+  loop: "{{ promtail_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Allow promtail port through firewalld
+  firewalld:
+    port: "{{ promtail_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+    source: "{{ item }}"
+  loop: "{{ promtail_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "RedHat"

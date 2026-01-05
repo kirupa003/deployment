@@ -1,0 +1,102 @@
+---
+- name: Validate SSH hardening configuration
+  block:
+    - name: Check SSH service status
+      systemd:
+        name: "{{ ssh_service_name }}"
+      register: ssh_service_status
+      become: true
+
+    - name: Verify SSH service is running
+      assert:
+        that:
+          - ssh_service_status.status.ActiveState == "active"
+        fail_msg: "SSH service is not running"
+        success_msg: "SSH service is running successfully"
+      when: ssh_enabled
+
+    - name: Test SSH configuration
+      command: "/usr/sbin/sshd -t"
+      register: ssh_config_validation
+      changed_when: false
+      become: true
+
+    - name: Verify SSH configuration is valid
+      assert:
+        that:
+          - ssh_config_validation.rc == 0
+        fail_msg: "SSH configuration is invalid: {{ ssh_config_validation.stderr }}"
+        success_msg: "SSH configuration is valid"
+
+    - name: Check SSH port accessibility
+      wait_for:
+        port: "{{ ssh_port }}"
+        host: "{{ ssh_listen_address }}"
+        timeout: 10
+      when: ssh_enabled
+
+    - name: Verify SSH host keys exist
+      stat:
+        path: "{{ item.file }}"
+      register: ssh_host_key_check
+      loop: "{{ ssh_host_keys }}"
+      become: true
+
+    - name: Verify all SSH host keys are present
+      assert:
+        that:
+          - item.stat.exists
+        fail_msg: "SSH host key {{ item.item.file }} is missing"
+        success_msg: "SSH host key {{ item.item.file }} exists"
+      loop: "{{ ssh_host_key_check.results }}"
+
+    - name: Check SSH host key permissions
+      stat:
+        path: "{{ item.file }}"
+      register: ssh_key_permissions
+      loop: "{{ ssh_host_keys }}"
+      become: true
+
+    - name: Verify SSH host key permissions
+      assert:
+        that:
+          - item.stat.mode == "0600"
+        fail_msg: "SSH host key {{ item.item.file }} has incorrect permissions"
+        success_msg: "SSH host key {{ item.item.file }} has correct permissions"
+      loop: "{{ ssh_key_permissions.results }}"
+
+    - name: Test SSH connection (dry run)
+      command: "ssh -o BatchMode=yes -o ConnectTimeout=5 -p {{ ssh_port }} localhost echo 'SSH test'"
+      register: ssh_connection_test
+      changed_when: false
+      failed_when: false
+      delegate_to: localhost
+      when: ssh_enabled
+
+    - name: Check moduli strength
+      shell: "awk '$5 >= {{ ssh_moduli_minimum }}' /etc/ssh/moduli | wc -l"
+      register: moduli_strength_check
+      changed_when: false
+      become: true
+
+    - name: Verify moduli strength
+      assert:
+        that:
+          - moduli_strength_check.stdout|int > 0
+        fail_msg: "No strong moduli found (>= {{ ssh_moduli_minimum }} bits)"
+        success_msg: "{{ moduli_strength_check.stdout }} strong moduli found"
+
+    - name: Display SSH hardening summary
+      debug:
+        msg:
+          - "SSH hardening validation completed successfully"
+          - "Service status: {{ ssh_service_status.status.ActiveState }}"
+          - "Listening on: {{ ssh_listen_address }}:{{ ssh_port }}"
+          - "Host keys: {{ ssh_host_keys | length }} generated"
+          - "Strong moduli: {{ moduli_strength_check.stdout }}"
+          - "Password authentication: {{ ssh_password_authentication }}"
+          - "Root login: {{ ssh_permit_root_login }}"
+
+  tags:
+    - ssh_hardening
+    - validate

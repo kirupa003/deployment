@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenVPN Exporter for Prometheus
+Documentation=https://github.com/kumina/openvpn_exporter
+After=network-online.target openvpn@server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openvpn_exporter
+Group=openvpn_exporter
+ExecStart=/usr/local/bin/openvpn_exporter \
+    -openvpn.status_paths {{ openvpn_exporter_status_file }} \
+    -web.listen-address :{{ openvpn_exporter_port }}
+Restart=always
+RestartSec=5
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

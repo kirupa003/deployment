@@ -1,0 +1,32 @@
+---
+# AmneziaWG servers configuration (WireGuard with obfuscation)
+
+vpn_protocol: amneziawg
+
+# WireGuard Dashboard settings
+wg_dashboard_enabled: true
+wg_interface: wg0
+wg_listen_port: 51821
+wg_server_address: "10.77.77.1/24"
+wg_mtu: 1420
+
+# Peer defaults
+wg_peer_dns: "{{ ansible_default_ipv4.address }}"
+wg_peer_allowed_ips: "0.0.0.0/0, ::/0"
+wg_persistent_keepalive: 25
+
+# AmneziaWG Obfuscation Parameters (for DPI bypass)
+# These values should be unique per deployment for better obfuscation
+amneziawg_junk_packet_count: 4
+amneziawg_junk_packet_min_size: 40
+amneziawg_junk_packet_max_size: 70
+amneziawg_init_packet_junk_size: 0
+amneziawg_response_packet_junk_size: 0
+amneziawg_init_packet_magic_header: 1
+amneziawg_response_packet_magic_header: 2
+amneziawg_underload_packet_magic_header: 3
+amneziawg_transport_packet_magic_header: 4
+
+# Dashboard access restriction
+wg_dashboard_firewall_restrict: true
+wg_dashboard_allowed_network: "10.0.0.0/8"

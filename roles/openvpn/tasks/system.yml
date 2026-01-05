@@ -1,0 +1,72 @@
+---
+# System Configuration for OpenVPN
+
+- name: Configure kernel parameters for OpenVPN
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-openvpn.conf
+  become: true
+  loop:
+    - { key: 'net.ipv4.ip_forward', value: '1' }
+    - { key: 'net.ipv6.conf.all.forwarding', value: '1' }
+    - { key: 'net.core.netdev_max_backlog', value: '5000' }
+    - { key: 'net.core.rmem_max', value: '134217728' }
+    - { key: 'net.core.wmem_max', value: '134217728' }
+  notify: apply sysctl
+
+- name: Ensure IP forwarding is enabled
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: true
+  become: true
+
+- name: Enable IPv6 forwarding if needed
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    state: present
+    reload: true
+  become: true
+  when: ansible_default_ipv6 is defined
+
+- name: Configure OpenVPN systemd overrides
+  file:
+    path: "/etc/systemd/system/{{ item }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ _openvpn_service_udp }}"
+    - "{{ _openvpn_service_tcp }}"
+
+- name: Create systemd service overrides
+  copy:
+    content: |
+      [Unit]
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=notify
+      PrivateTmp=true
+      WorkingDirectory=/etc/openvpn
+      ExecStartPre=/bin/bash -c 'until ping -c1 8.8.8.8; do sleep 1; done'
+      TimeoutStartSec=300
+      Restart=on-failure
+      RestartSec=5
+    dest: "/etc/systemd/system/{{ item }}.service.d/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  loop:
+    - "{{ _openvpn_service_udp }}"
+    - "{{ _openvpn_service_tcp }}"
+  notify: reload systemd

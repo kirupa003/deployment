@@ -1,0 +1,51 @@
+---
+# Host-specific configuration for ap-vpn-wg-01.example.com
+
+# Server Identity
+server_id: ap-wg-01
+server_name: "Asia Pacific WireGuard Server 01"
+server_description: "Primary WireGuard server in Singapore"
+
+# Network Configuration
+ansible_host: 10.3.1.10
+public_ip: 203.0.113.210
+private_ip: 10.3.1.10
+
+# Hardware Specifications
+cpu_cores: 4
+memory_gb: 8
+disk_gb: 100
+network_bandwidth_mbps: 1000
+
+# VPN Configuration
+wireguard_server_private_key: "{{ vault_ap_wg_01_private_key }}"
+wireguard_server_public_key: "{{ vault_ap_wg_01_public_key }}"
+
+# Capacity Settings
+max_concurrent_connections: 800
+current_load_threshold: 80
+
+# Monitoring Configuration
+custom_metrics:
+  - name: connection_count
+    threshold: 700
+  - name: bandwidth_utilization
+    threshold: 80
+
+# Maintenance Windows
+maintenance_window:
+  day: saturday
+  start_time: "02:00"  # 2 AM SGT
+  duration_hours: 2
+  timezone: "{{ timezone }}"
+
+# Backup Configuration
+backup_priority: high
+backup_frequency: daily
+
+# Performance Tuning
+kernel_parameters:
+  net.core.netdev_max_backlog: 5000
+  net.ipv4.tcp_congestion_control: bbr
+  net.core.rmem_max: 134217728
+  net.core.wmem_max: 134217728

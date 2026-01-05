@@ -1,0 +1,73 @@
+---
+- name: Create crowdsec system user
+  user:
+    name: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ crowdsec_data_dir }}"
+    create_home: false
+  become: true
+
+- name: Create crowdsec system group
+  group:
+    name: "{{ crowdsec_group }}"
+    system: true
+  become: true
+
+- name: Create crowdsec directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ crowdsec_user }}"
+    group: "{{ crowdsec_group }}"
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ crowdsec_config_dir }}"
+    - "{{ crowdsec_data_dir }}"
+    - "{{ crowdsec_log_dir }}"
+    - "{{ crowdsec_config_dir }}/scenarios"
+    - "{{ crowdsec_config_dir }}/collections"
+    - "{{ crowdsec_config_dir }}/parsers"
+    - "{{ crowdsec_config_dir }}/postoverflows"
+    - "{{ crowdsec_config_dir }}/hub"
+    - /var/lib/crowdsec
+    - /etc/crowdsec/acquis.d
+
+- name: Install required packages
+  package:
+    name:
+      - curl
+      - wget
+      - gnupg
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+      - jq
+    state: present
+  become: true
+
+- name: Check if CrowdSec repository key exists
+  stat:
+    path: /usr/share/keyrings/crowdsec-archive-keyring.gpg
+  register: crowdsec_key_exists
+
+- name: Add CrowdSec repository key
+  shell: |
+    curl -fsSL https://packagecloud.io/crowdsec/crowdsec/gpgkey | gpg --dearmor -o /usr/share/keyrings/crowdsec-archive-keyring.gpg
+  become: true
+  when: not crowdsec_key_exists.stat.exists
+
+- name: Add CrowdSec repository
+  apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/crowdsec-archive-keyring.gpg] https://packagecloud.io/crowdsec/crowdsec/ubuntu/ {{ ansible_distribution_release }} main"
+    state: present
+    filename: crowdsec
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Update package cache
+  package:
+    update_cache: true
+  become: true

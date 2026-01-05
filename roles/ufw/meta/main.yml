@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: UFW (Uncomplicated Firewall) configuration for VPN servers
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - security
+    - firewall
+    - ufw
+    - vpn
+
+dependencies: []

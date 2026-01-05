@@ -1,0 +1,71 @@
+---
+# Deploy Cloudflare Tunnel for Ansible Controller Protection
+# Usage: ansible-playbook playbooks/security/cloudflare-tunnel.yml -e "@inventories/production/group_vars/vault.yml"
+
+- name: Deploy Cloudflare Tunnel
+  hosts: ansible_controller
+  become: true
+
+  vars_prompt:
+    - name: cloudflare_tunnel_token
+      prompt: "Enter Cloudflare Tunnel token (from Zero Trust dashboard)"
+      private: true
+      when: cloudflare_tunnel_token is not defined
+
+  vars:
+    # Override these in your vault or extra vars
+    cloudflare_domain: "{{ cf_domain | default('example.com') }}"
+    cloudflare_tunnel_name: "{{ cf_tunnel_name | default('vpn-ansible-controller') }}"
+
+    # Services to expose
+    cloudflare_tunnel_ingress:
+      - hostname: "ansible.{{ cloudflare_domain }}"
+        service: "ssh://localhost:22"
+      - hostname: "metrics.{{ cloudflare_domain }}"
+        service: "http://localhost:9090"
+        originRequest:
+          noTLSVerify: true
+      # Catch-all (required)
+      - service: "http_status:404"
+
+    # Access control
+    cloudflare_access_enabled: true
+    cloudflare_ssh_browser_enabled: true
+    cloudflare_ssh_short_lived_certs: true
+
+  roles:
+    - role: cloudflare_tunnel
+
+  post_tasks:
+    - name: Display access information
+      debug:
+        msg: |
+          ============================================
+          Cloudflare Tunnel Setup Complete!
+          ============================================
+
+          SSH Access Methods:
+          -------------------
+          1. Browser-based SSH:
+             https://ansible.{{ cloudflare_domain }}
+
+          2. CLI with cloudflared:
+             cloudflared access ssh --hostname ansible.{{ cloudflare_domain }}
+
+          3. SSH ProxyCommand (add to ~/.ssh/config):
+             Host ansible-controller
+                 HostName ansible.{{ cloudflare_domain }}
+                 ProxyCommand cloudflared access ssh --hostname %h
+                 User root
+
+          Metrics Dashboard:
+          ------------------
+          https://metrics.{{ cloudflare_domain }}
+
+          Next Steps:
+          -----------
+          1. Configure Access policies in Cloudflare Zero Trust dashboard
+          2. Add allowed email addresses or domains
+          3. Test SSH access through the tunnel
+          4. (Optional) Disable direct SSH access on firewall
+          ============================================

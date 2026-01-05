@@ -1,0 +1,83 @@
+---
+# CrowdSec Log Acquisition Configuration
+{% for source in crowdsec_log_sources %}
+- source: {{ source.source }}
+{% if source.filenames is defined %}
+  filenames:
+{% for filename in source.filenames %}
+    - {{ filename }}
+{% endfor %}
+{% endif %}
+{% if source.labels is defined %}
+  labels:
+{% for key, value in source.labels.items() %}
+    {{ key }}: {{ value }}
+{% endfor %}
+{% endif %}
+{% if source.exclude_regexps is defined %}
+  exclude_regexps:
+{% for regexp in source.exclude_regexps %}
+    - {{ regexp }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+
+# Additional VPN-specific log sources
+- source: file
+  filenames:
+    - /var/log/wireguard/wg0.log
+    - /var/log/wireguard/*.log
+  labels:
+    type: wireguard
+  exclude_regexps:
+    - "^$"
+
+- source: file
+  filenames:
+    - /var/log/openvpn/openvpn.log
+    - /var/log/openvpn/*.log
+  labels:
+    type: openvpn
+  exclude_regexps:
+    - "^$"
+
+# System logs for SSH and authentication
+- source: file
+  filenames:
+    - /var/log/auth.log
+    - /var/log/secure
+  labels:
+    type: syslog
+  exclude_regexps:
+    - "^$"
+
+# Kernel logs for network events
+- source: file
+  filenames:
+    - /var/log/kern.log
+  labels:
+    type: syslog
+  exclude_regexps:
+    - "^$"
+
+# Web server logs if present
+- source: file
+  filenames:
+    - /var/log/nginx/access.log
+    - /var/log/nginx/error.log
+  labels:
+    type: nginx
+  exclude_regexps:
+    - "^$"
+  when: nginx_installed | default(false)
+
+- source: file
+  filenames:
+    - /var/log/apache2/access.log
+    - /var/log/apache2/error.log
+  labels:
+    type: apache2
+  exclude_regexps:
+    - "^$"
+  when: apache_installed | default(false)

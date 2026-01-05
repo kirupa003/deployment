@@ -1,0 +1,71 @@
+---
+- name: Create blocklist update script
+  template:
+    src: update-blocklists.sh.j2
+    dest: "{{ coredns_home }}/update-blocklists.sh"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Create blocklist processing script
+  template:
+    src: process-blocklist.py.j2
+    dest: "{{ coredns_home }}/process-blocklist.py"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0755'
+  become: yes
+
+- name: Install Python for blocklist processing
+  package:
+    name:
+      - python3
+      - python3-requests
+      - python3-dnspython
+    state: present
+  become: yes
+
+- name: Create systemd service for blocklist updates
+  template:
+    src: coredns-blocklist-updater.service.j2
+    dest: /etc/systemd/system/coredns-blocklist-updater.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+
+- name: Create systemd timer for blocklist updates
+  template:
+    src: coredns-blocklist-updater.timer.j2
+    dest: /etc/systemd/system/coredns-blocklist-updater.timer
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+  notify: restart coredns-blocklist-updater
+
+- name: Download initial blocklists
+  command: "{{ coredns_home }}/update-blocklists.sh"
+  become: yes
+  become_user: "{{ coredns_user }}"
+  args:
+    creates: "{{ coredns_data_dir }}/blocklists/combined-blocklist.txt"
+
+- name: Create blocklist zone file for CoreDNS
+  template:
+    src: blocklist.db.j2
+    dest: "{{ coredns_config_dir }}/blocklist.db"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0644'
+  become: yes
+  notify: reload coredns
+
+- name: Enable and start blocklist updater timer
+  systemd:
+    name: coredns-blocklist-updater.timer
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  become: yes

@@ -1,0 +1,58 @@
+---
+- name: Configure SSH daemon
+  block:
+    - name: Generate SSH daemon configuration
+      template:
+        src: sshd_config.j2
+        dest: "{{ ssh_config_file }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+        validate: '/usr/sbin/sshd -t -f %s'
+      become: true
+      notify: restart ssh
+
+    - name: Test SSH configuration syntax
+      command: "/usr/sbin/sshd -t"
+      register: ssh_config_test
+      changed_when: false
+      become: true
+
+    - name: Verify SSH configuration syntax
+      assert:
+        that:
+          - ssh_config_test.rc == 0
+        fail_msg: "SSH configuration has syntax errors: {{ ssh_config_test.stderr }}"
+        success_msg: "SSH configuration syntax is valid"
+
+    - name: Configure SSH client settings
+      template:
+        src: ssh_config.j2
+        dest: /etc/ssh/ssh_config
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      become: true
+
+    - name: Set proper permissions on SSH directory
+      file:
+        path: "{{ ssh_config_dir }}"
+        owner: root
+        group: root
+        mode: '0755'
+        state: directory
+      become: true
+
+    - name: Set proper permissions on SSH configuration file
+      file:
+        path: "{{ ssh_config_file }}"
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+
+  tags:
+    - ssh_hardening
+    - configure

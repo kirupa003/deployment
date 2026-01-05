@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# WireGuard Server Configuration
+# Reference: https://www.wireguard.com/
+
+[Interface]
+Address = {{ wg_server_address }}{% if wg_ipv6_enabled %}, {{ wg_server_address_v6 }}{% endif %}
+
+ListenPort = {{ wg_listen_port }}
+PrivateKey = {{ wg_private_key }}
+{% if wg_mtu is defined %}
+MTU = {{ wg_mtu }}
+{% endif %}
+
+# NAT and forwarding (IPv4)
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+{% if wg_ipv6_enabled %}
+# NAT and forwarding (IPv6)
+PostUp = ip6tables -A FORWARD -i %i -j ACCEPT; ip6tables -A FORWARD -o %i -j ACCEPT; ip6tables -t nat -A POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+PostDown = ip6tables -D FORWARD -i %i -j ACCEPT; ip6tables -D FORWARD -o %i -j ACCEPT; ip6tables -t nat -D POSTROUTING -o {{ wg_external_interface }} -j MASQUERADE
+{% endif %}
+
+SaveConfig = {{ wg_save_config | lower }}
+
+# Peers are managed by WireGuard Dashboard (stored in SQLite database)

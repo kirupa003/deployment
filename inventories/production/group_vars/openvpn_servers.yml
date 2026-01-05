@@ -1,0 +1,64 @@
+---
+# OpenVPN servers configuration
+
+# OpenVPN specific settings
+openvpn:
+  enabled: true
+  
+  # Server configuration
+  server:
+    protocol: "udp"
+    port_udp: 1194
+    port_tcp: 443
+    network: "10.9.0.0"
+    netmask: "255.255.255.0"
+    
+  # PKI configuration
+  pki:
+    enabled: true
+    ca_cert_path: "/etc/openvpn/pki/ca.crt"
+    server_cert_path: "/etc/openvpn/pki/server.crt"
+    server_key_path: "/etc/openvpn/pki/server.key"
+    dh_path: "/etc/openvpn/pki/dh.pem"
+    ta_key_path: "/etc/openvpn/pki/ta.key"
+    
+  # Client configuration
+  clients:
+    max_clients: 500
+    client_to_client: false
+    duplicate_cn: false
+    
+  # Security settings
+  security:
+    cipher: "AES-256-GCM"
+    auth: "SHA256"
+    tls_auth: true
+    tls_version_min: "1.2"
+    
+  # Network settings
+  network:
+    push_routes:
+      - "redirect-gateway def1 bypass-dhcp"
+    push_dns:
+      - "{{ ansible_default_ipv4.address }}"
+      - "1.1.1.1"
+    compression: "lz4-v2"
+    
+  # Logging
+  logging:
+    log_level: 3
+    log_file: "/var/log/openvpn/openvpn.log"
+    status_file: "/var/log/openvpn/openvpn-status.log"
+    
+# OpenVPN Exporter for monitoring
+openvpn_exporter:
+  enabled: true
+  port: 9176
+  listen_address: "0.0.0.0"
+  status_file: "/var/log/openvpn/openvpn-status.log"
+  
+# Firewall rules specific to OpenVPN
+firewall_rules:
+  - { rule: 'allow', port: '{{ openvpn.server.port_udp }}', proto: 'udp' }
+  - { rule: 'allow', port: '{{ openvpn.server.port_tcp }}', proto: 'tcp' }
+  - { rule: 'allow', port: '{{ openvpn_exporter.port }}', proto: 'tcp', src: '10.0.0.0/8' }

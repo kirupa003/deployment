@@ -1,0 +1,60 @@
+---
+# Staging VPN Servers Configuration
+# Simplified configuration for testing
+
+# Common VPN Settings
+vpn_common:
+  config_backup: false
+  auto_restart: true
+  health_check_interval: 60
+
+# WireGuard Configuration (Staging)
+wireguard:
+  enabled: true
+  interface: "wg0"
+  listen_port: 51820
+  network: "10.100.0.0/24"
+  dashboard:
+    enabled: true
+    port: 10086
+    auth_required: false  # Simplified for staging
+  clients:
+    max_count: 10  # Limited for staging
+
+# OpenVPN Configuration (Staging)
+openvpn:
+  enabled: true
+  protocol: "udp"
+  port: 1194
+  network: "10.101.0.0/24"
+  netmask: "255.255.255.0"
+  pki:
+    enabled: true
+    ca_expire: 365  # Shorter for staging
+    cert_expire: 90  # Shorter for staging
+  clients:
+    max_count: 5  # Limited for staging
+
+# AmneziaWG Configuration (Staging)
+amneziawg:
+  enabled: false  # Disabled by default in staging
+
+# DNS Configuration
+dns:
+  enabled: true
+  upstream_servers:
+    - "8.8.8.8"
+    - "8.8.4.4"
+  cache_size: "100m"  # Smaller cache for staging
+
+# Monitoring for VPN Servers
+monitoring:
+  node_exporter:
+    enabled: true
+    port: 9100
+  wg_exporter:
+    enabled: true
+    port: 9586
+  openvpn_exporter:
+    enabled: true
+    port: 9176

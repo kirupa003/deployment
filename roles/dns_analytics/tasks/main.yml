@@ -1,0 +1,133 @@
+---
+# DNS Analytics - ClickHouse setup for centralized DNS query storage
+
+- name: Add ClickHouse GPG key
+  ansible.builtin.apt_key:
+    url: https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key
+    keyring: /usr/share/keyrings/clickhouse-keyring.gpg
+    state: present
+
+- name: Add ClickHouse repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/clickhouse-keyring.gpg] https://packages.clickhouse.com/deb stable main"
+    state: present
+    filename: clickhouse
+
+- name: Install ClickHouse
+  ansible.builtin.apt:
+    name:
+      - clickhouse-server
+      - clickhouse-client
+    state: present
+    update_cache: true
+
+- name: Create ClickHouse directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: clickhouse
+    group: clickhouse
+    mode: "0755"
+  loop:
+    - "{{ clickhouse_data_dir }}"
+    - "{{ clickhouse_log_dir }}"
+
+- name: Deploy ClickHouse configuration
+  ansible.builtin.template:
+    src: clickhouse-config.xml.j2
+    dest: /etc/clickhouse-server/config.d/dns-analytics.xml
+    owner: clickhouse
+    group: clickhouse
+    mode: "0640"
+  notify: Restart ClickHouse
+
+- name: Deploy ClickHouse users configuration
+  ansible.builtin.template:
+    src: clickhouse-users.xml.j2
+    dest: /etc/clickhouse-server/users.d/dns-analytics.xml
+    owner: clickhouse
+    group: clickhouse
+    mode: "0640"
+  notify: Restart ClickHouse
+
+- name: Enable and start ClickHouse
+  ansible.builtin.systemd:
+    name: clickhouse-server
+    state: started
+    enabled: true
+
+- name: Wait for ClickHouse to be ready
+  ansible.builtin.wait_for:
+    port: "{{ clickhouse_http_port }}"
+    host: 127.0.0.1
+    timeout: 60
+
+- name: Create DNS analytics database
+  ansible.builtin.command: >
+    clickhouse-client --query "CREATE DATABASE IF NOT EXISTS {{ clickhouse_database }}"
+  changed_when: false
+
+- name: Create DNS queries table
+  ansible.builtin.command: >
+    clickhouse-client --query "
+    CREATE TABLE IF NOT EXISTS {{ clickhouse_database }}.{{ clickhouse_table }} (
+        timestamp DateTime64(3) DEFAULT now64(3),
+        server String,
+        region String,
+        client_ip String,
+        domain String,
+        query_type String,
+        response_code String,
+        response_time_ms Float32,
+        blocked UInt8 DEFAULT 0
+    )
+    ENGINE = MergeTree()
+    PARTITION BY toYYYYMM(timestamp)
+    ORDER BY (timestamp, server, domain)
+    TTL timestamp + INTERVAL {{ clickhouse_retention_days }} DAY
+    SETTINGS index_granularity = 8192
+    "
+  changed_when: false
+
+- name: Create materialized view for top domains
+  ansible.builtin.command: >
+    clickhouse-client --query "
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {{ clickhouse_database }}.top_domains_hourly
+    ENGINE = SummingMergeTree()
+    PARTITION BY toYYYYMM(hour)
+    ORDER BY (hour, domain)
+    AS SELECT
+        toStartOfHour(timestamp) AS hour,
+        domain,
+        count() AS query_count,
+        countIf(blocked = 1) AS blocked_count
+    FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+    GROUP BY hour, domain
+    "
+  changed_when: false
+
+- name: Create materialized view for server stats
+  ansible.builtin.command: >
+    clickhouse-client --query "
+    CREATE MATERIALIZED VIEW IF NOT EXISTS {{ clickhouse_database }}.server_stats_hourly
+    ENGINE = SummingMergeTree()
+    PARTITION BY toYYYYMM(hour)
+    ORDER BY (hour, server, region)
+    AS SELECT
+        toStartOfHour(timestamp) AS hour,
+        server,
+        region,
+        count() AS query_count,
+        countIf(blocked = 1) AS blocked_count,
+        uniqExact(client_ip) AS unique_clients,
+        uniqExact(domain) AS unique_domains
+    FROM {{ clickhouse_database }}.{{ clickhouse_table }}
+    GROUP BY hour, server, region
+    "
+  changed_when: false
+
+- name: Deploy useful SQL queries script
+  ansible.builtin.template:
+    src: dns-queries.sql.j2
+    dest: /opt/dns-analytics-queries.sql
+    mode: "0644"

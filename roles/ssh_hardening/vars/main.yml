@@ -1,0 +1,5 @@
+---
+# SSH service name varies by distribution
+ssh_service_name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"
+ssh_config_file: "/etc/ssh/sshd_config"
+ssh_config_dir: "/etc/ssh"

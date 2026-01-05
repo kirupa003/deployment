@@ -1,0 +1,24 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: Ansible role for deploying Fluent Bit for DNS log processing and forwarding to ClickHouse
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - logging
+    - fluent-bit
+    - dns
+    - clickhouse
+    - log_processing
+
+dependencies: []

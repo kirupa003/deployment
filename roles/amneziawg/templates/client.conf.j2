@@ -1,0 +1,51 @@
+# AmneziaWG Client Configuration
+# Client: {{ client_name }}
+# Generated: {{ ansible_date_time.iso8601 }}
+
+[Interface]
+# Client private key
+PrivateKey = {{ client_private_key }}
+
+# Client IP address within the VPN network
+Address = {{ client_ip }}/32
+
+# DNS servers
+{% if amneziawg_dns is string %}
+DNS = {{ amneziawg_dns }}
+{% else %}
+DNS = {{ amneziawg_dns | join(', ') }}
+{% endif %}
+
+# MTU
+MTU = {{ amneziawg_mtu }}
+
+[Peer]
+# Server public key
+PublicKey = {{ amneziawg_server_public_key }}
+
+# Server endpoint
+Endpoint = {{ ansible_default_ipv4.address }}:{{ amneziawg_port }}
+
+# Allowed IPs (route all traffic through VPN)
+AllowedIPs = 0.0.0.0/0, ::/0
+
+# Keep connection alive
+PersistentKeepalive = {{ amneziawg_persistent_keepalive }}
+
+{% if amneziawg_obfuscation_enabled %}
+# Obfuscation parameters (must match server)
+Jc = {{ amneziawg_junk_packet_count }}
+Jmin = {{ amneziawg_junk_packet_min_size }}
+Jmax = {{ amneziawg_junk_packet_max_size }}
+S1 = {{ amneziawg_init_packet_junk_size }}
+S2 = {{ amneziawg_response_packet_junk_size }}
+H1 = {{ amneziawg_init_packet_magic_header }}
+H2 = {{ amneziawg_response_packet_magic_header }}
+H3 = {{ amneziawg_underload_packet_magic_header }}
+H4 = {{ amneziawg_transport_packet_magic_header }}
+{% endif %}
+
+{% if amneziawg_use_preshared_key | default(false) %}
+# Preshared key for additional security
+PresharedKey = {{ preshared_key }}
+{% endif %}

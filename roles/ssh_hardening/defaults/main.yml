@@ -1,0 +1,157 @@
+---
+# SSH hardening configuration
+
+# Service configuration
+ssh_enabled: true
+ssh_service_state: started
+ssh_service_enabled: true
+
+# Basic SSH configuration
+ssh_port: "{{ ansible_port | default('22') }}"
+ssh_listen_address: "0.0.0.0"
+ssh_protocol: 2
+ssh_address_family: any
+
+# Authentication settings
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"
+ssh_challenge_response_authentication: "no"
+ssh_pam_authentication: "no"
+ssh_kerberos_authentication: "no"
+ssh_gssapi_authentication: "no"
+ssh_hostbased_authentication: "no"
+ssh_permit_empty_passwords: "no"
+ssh_permit_user_environment: "no"
+
+# Key-based authentication
+ssh_authorized_keys_file: ".ssh/authorized_keys"
+ssh_strict_modes: "yes"
+ssh_rsa_authentication: "no"  # Deprecated in OpenSSH 7.0+
+
+# Connection settings
+ssh_max_auth_tries: 3
+ssh_max_sessions: 2
+ssh_max_startups: "10:30:60"
+ssh_login_grace_time: 30
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+ssh_tcp_keep_alive: "no"
+
+# Logging
+ssh_log_level: "VERBOSE"
+ssh_syslog_facility: "AUTH"
+ssh_use_dns: "no"
+
+# Security features
+ssh_use_privilege_separation: "yes"
+ssh_compression: "no"
+ssh_x11_forwarding: "no"
+ssh_x11_display_offset: 10
+ssh_x11_use_localhost: "yes"
+ssh_agent_forwarding: "no"
+ssh_tcp_forwarding: "no"
+ssh_gateway_ports: "no"
+ssh_permit_tunnel: "no"
+ssh_permit_tty: "yes"
+ssh_print_motd: "no"
+ssh_print_last_log: "yes"
+ssh_banner: "/etc/ssh/banner"
+
+# Cryptographic settings
+ssh_ciphers:
+  - "chacha20-poly1305@openssh.com"
+  - "aes256-gcm@openssh.com"
+  - "aes128-gcm@openssh.com"
+  - "aes256-ctr"
+  - "aes192-ctr"
+  - "aes128-ctr"
+
+ssh_macs:
+  - "hmac-sha2-256-etm@openssh.com"
+  - "hmac-sha2-512-etm@openssh.com"
+  - "hmac-sha2-256"
+  - "hmac-sha2-512"
+
+ssh_kex_algorithms:
+  - "curve25519-sha256@libssh.org"
+  - "diffie-hellman-group16-sha512"
+  - "diffie-hellman-group18-sha512"
+  - "diffie-hellman-group14-sha256"
+
+ssh_host_key_algorithms:
+  - "ssh-ed25519"
+  - "ssh-rsa"
+  - "ecdsa-sha2-nistp256"
+  - "ecdsa-sha2-nistp384"
+  - "ecdsa-sha2-nistp521"
+
+ssh_pubkey_accepted_algorithms:
+  - "ssh-ed25519"
+  - "ssh-rsa"
+  - "ecdsa-sha2-nistp256"
+  - "ecdsa-sha2-nistp384"
+  - "ecdsa-sha2-nistp521"
+
+# User and group restrictions
+ssh_allow_users: []
+ssh_deny_users: []
+ssh_allow_groups: []
+ssh_deny_groups: []
+
+# Subsystems
+ssh_sftp_server: "/usr/lib/openssh/sftp-server"
+ssh_subsystems:
+  - "sftp {{ ssh_sftp_server }}"
+
+# Custom configuration
+ssh_custom_options: {}
+# Example:
+# ssh_custom_options:
+#   "Match User ansible":
+#     - "PasswordAuthentication yes"
+#     - "PubkeyAuthentication yes"
+
+# Host keys to generate
+ssh_host_keys:
+  - type: "rsa"
+    bits: 4096
+    file: "/etc/ssh/ssh_host_rsa_key"
+  - type: "ed25519"
+    bits: 256
+    file: "/etc/ssh/ssh_host_ed25519_key"
+  - type: "ecdsa"
+    bits: 521
+    file: "/etc/ssh/ssh_host_ecdsa_key"
+
+# Moduli configuration
+ssh_moduli_minimum: 3071
+ssh_regenerate_moduli: false
+
+# Fail2ban integration
+ssh_fail2ban_enabled: true
+
+# Banner configuration
+ssh_banner_enabled: true
+ssh_banner_content: |
+  **************************************************************************
+  *                                                                        *
+  *   This system is for the use of authorized users only.                *
+  *   Individuals using this computer system without authority, or in      *
+  *   excess of their authority, are subject to having all of their       *
+  *   activities on this system monitored and recorded by system          *
+  *   personnel.                                                           *
+  *                                                                        *
+  *   In the course of monitoring individuals improperly using this       *
+  *   system, or in the course of system maintenance, the activities      *
+  *   of authorized users may also be monitored.                          *
+  *                                                                        *
+  *   Anyone using this system expressly consents to such monitoring      *
+  *   and is advised that if such monitoring reveals possible             *
+  *   evidence of criminal activity, system personnel may provide the     *
+  *   evidence from such monitoring to law enforcement officials.         *
+  *                                                                        *
+  **************************************************************************
+
+# Backup configuration
+ssh_backup_original: true

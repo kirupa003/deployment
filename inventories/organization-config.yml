@@ -1,0 +1,446 @@
+---
+# Inventory Organization Configuration
+# Defines how VPN servers should be automatically grouped and organized
+
+# Grouping strategies configuration
+grouping_strategies:
+  
+  # Group servers by geographic region
+  by_region:
+    enabled: true
+    prefix: ""
+    suffix: ""
+    
+    # Mapping from cloud regions to standard region names
+    mapping:
+      # AWS regions
+      us-east-1: north_america
+      us-east-2: north_america
+      us-west-1: north_america
+      us-west-2: north_america
+      ca-central-1: north_america
+      
+      eu-west-1: europe
+      eu-west-2: europe
+      eu-west-3: europe
+      eu-central-1: europe
+      eu-north-1: europe
+      eu-south-1: europe
+      
+      ap-southeast-1: asia_pacific
+      ap-southeast-2: asia_pacific
+      ap-northeast-1: asia_pacific
+      ap-northeast-2: asia_pacific
+      ap-south-1: asia_pacific
+      ap-east-1: asia_pacific
+      
+      sa-east-1: south_america
+      
+      # GCP regions
+      us-central1: north_america
+      us-east1: north_america
+      us-west1: north_america
+      europe-west1: europe
+      europe-west2: europe
+      asia-southeast1: asia_pacific
+      asia-northeast1: asia_pacific
+      
+      # Azure regions
+      eastus: north_america
+      westus: north_america
+      westeurope: europe
+      northeurope: europe
+      southeastasia: asia_pacific
+      eastasia: asia_pacific
+  
+  # Group servers by VPN protocol support
+  by_protocol:
+    enabled: true
+    prefix: ""
+    suffix: "_servers"
+    
+    # Protocol-specific configuration
+    protocols:
+      wireguard:
+        group_name: "wireguard_servers"
+        priority: 1
+      openvpn:
+        group_name: "openvpn_servers"
+        priority: 2
+      amneziawg:
+        group_name: "amneziawg_servers"
+        priority: 3
+  
+  # Group servers by connection capacity
+  by_capacity:
+    enabled: true
+    prefix: "capacity_"
+    suffix: ""
+    
+    # Capacity tier definitions
+    tiers:
+      small:
+        min: 1
+        max: 50
+        description: "Small capacity servers (1-50 connections)"
+      medium:
+        min: 51
+        max: 100
+        description: "Medium capacity servers (51-100 connections)"
+      large:
+        min: 101
+        max: 200
+        description: "Large capacity servers (101-200 connections)"
+      xlarge:
+        min: 201
+        max: 500
+        description: "Extra large capacity servers (201-500 connections)"
+      xxlarge:
+        min: 501
+        max: 1000
+        description: "Extra extra large capacity servers (501+ connections)"
+  
+  # Group servers by cloud provider
+  by_provider:
+    enabled: true
+    prefix: ""
+    suffix: "_servers"
+    
+    # Provider-specific configuration
+    providers:
+      aws:
+        group_name: "aws_servers"
+        priority: 1
+      gcp:
+        group_name: "gcp_servers"
+        priority: 2
+      azure:
+        group_name: "azure_servers"
+        priority: 3
+      hetzner:
+        group_name: "hetzner_servers"
+        priority: 4
+      digitalocean:
+        group_name: "digitalocean_servers"
+        priority: 5
+  
+  # Group servers by environment
+  by_environment:
+    enabled: true
+    prefix: "env_"
+    suffix: ""
+    
+    # Environment configuration
+    environments:
+      production:
+        group_name: "env_production"
+        priority: 1
+      staging:
+        group_name: "env_staging"
+        priority: 2
+      development:
+        group_name: "env_development"
+        priority: 3
+      testing:
+        group_name: "env_testing"
+        priority: 4
+  
+  # Group servers by server type/performance tier
+  by_server_type:
+    enabled: true
+    prefix: "type_"
+    suffix: ""
+    
+    # Server type configuration
+    types:
+      basic:
+        group_name: "type_basic"
+        description: "Basic performance servers"
+        priority: 1
+      standard:
+        group_name: "type_standard"
+        description: "Standard performance servers"
+        priority: 2
+      high_performance:
+        group_name: "type_high_performance"
+        description: "High performance servers"
+        priority: 3
+      dedicated:
+        group_name: "type_dedicated"
+        description: "Dedicated servers"
+        priority: 4
+  
+  # Group servers by availability zone (within regions)
+  by_availability_zone:
+    enabled: false
+    prefix: "az_"
+    suffix: ""
+    
+    # Zone grouping configuration
+    include_region_in_name: true
+    format: "{region}_{zone}"
+
+# Group variables configuration
+group_vars:
+  
+  # Apply regional-specific variables
+  apply_regional_vars: true
+  
+  # Apply protocol-specific variables
+  apply_protocol_vars: true
+  
+  # Apply capacity-specific variables
+  apply_capacity_vars: true
+  
+  # Apply provider-specific variables
+  apply_provider_vars: true
+  
+  # Custom group variables
+  custom_vars:
+    
+    # Base VPN servers group
+    vpn_servers:
+      ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      vpn_infrastructure: true
+      monitoring_enabled: true
+      security_hardening: true
+      log_shipping_enabled: true
+      backup_enabled: true
+    
+    # Regional variables
+    regional:
+      europe:
+        ntp_servers:
+          - 0.europe.pool.ntp.org
+          - 1.europe.pool.ntp.org
+          - 2.europe.pool.ntp.org
+        dns_servers:
+          - 1.1.1.1
+          - 8.8.8.8
+          - 9.9.9.9
+        timezone: Europe/London
+        locale: en_GB.UTF-8
+        currency: EUR
+        data_residency: eu
+      
+      north_america:
+        ntp_servers:
+          - 0.north-america.pool.ntp.org
+          - 1.north-america.pool.ntp.org
+          - 2.north-america.pool.ntp.org
+        dns_servers:
+          - 1.1.1.1
+          - 8.8.8.8
+          - 208.67.222.222
+        timezone: America/New_York
+        locale: en_US.UTF-8
+        currency: USD
+        data_residency: us
+      
+      asia_pacific:
+        ntp_servers:
+          - 0.asia.pool.ntp.org
+          - 1.asia.pool.ntp.org
+          - 2.asia.pool.ntp.org
+        dns_servers:
+          - 1.1.1.1
+          - 8.8.8.8
+          - 208.67.220.220
+        timezone: Asia/Singapore
+        locale: en_SG.UTF-8
+        currency: USD
+        data_residency: apac
+      
+      south_america:
+        ntp_servers:
+          - 0.south-america.pool.ntp.org
+          - 1.south-america.pool.ntp.org
+        dns_servers:
+          - 1.1.1.1
+          - 8.8.8.8
+        timezone: America/Sao_Paulo
+        locale: pt_BR.UTF-8
+        currency: BRL
+        data_residency: latam
+    
+    # Protocol-specific variables
+    protocol:
+      wireguard_servers:
+        wireguard_port: 51820
+        wireguard_dashboard_port: 10086
+        wireguard_interface: wg0
+        wireguard_mtu: 1420
+        wireguard_keepalive: 25
+        wireguard_dns: "1.1.1.1,8.8.8.8"
+      
+      openvpn_servers:
+        openvpn_port: 1194
+        openvpn_protocol: udp
+        openvpn_cipher: AES-256-GCM
+        openvpn_auth: SHA256
+        openvpn_tls_version_min: "1.2"
+        openvpn_dh_key_size: 2048
+      
+      amneziawg_servers:
+        amneziawg_port: 51821
+        amneziawg_interface: awg0
+        amneziawg_obfuscation: true
+        amneziawg_junk_packet_count: 3
+        amneziawg_junk_packet_min_size: 50
+        amneziawg_junk_packet_max_size: 1000
+    
+    # Capacity-specific variables
+    capacity:
+      capacity_small:
+        max_connections: 50
+        monitoring_interval: 60
+        log_level: info
+        resource_limits:
+          cpu: "1"
+          memory: "1Gi"
+      
+      capacity_medium:
+        max_connections: 100
+        monitoring_interval: 30
+        log_level: info
+        resource_limits:
+          cpu: "2"
+          memory: "2Gi"
+      
+      capacity_large:
+        max_connections: 200
+        monitoring_interval: 15
+        log_level: info
+        resource_limits:
+          cpu: "4"
+          memory: "4Gi"
+      
+      capacity_xlarge:
+        max_connections: 500
+        monitoring_interval: 10
+        log_level: debug
+        resource_limits:
+          cpu: "8"
+          memory: "8Gi"
+    
+    # Provider-specific variables
+    provider:
+      aws_servers:
+        cloud_provider: aws
+        instance_metadata_service: v2
+        ebs_optimized: true
+        monitoring_detailed: true
+      
+      gcp_servers:
+        cloud_provider: gcp
+        preemptible: false
+        automatic_restart: true
+        on_host_maintenance: MIGRATE
+      
+      azure_servers:
+        cloud_provider: azure
+        accelerated_networking: true
+        boot_diagnostics: true
+
+# Inventory optimization settings
+optimization:
+  
+  # Remove groups that have no hosts
+  remove_empty_groups: true
+  
+  # Merge groups with identical host lists (advanced)
+  merge_similar_groups: false
+  
+  # Sort hosts within groups alphabetically
+  sort_hosts: true
+  
+  # Sort groups by priority/name
+  sort_groups: true
+  
+  # Remove duplicate host entries
+  deduplicate_hosts: true
+  
+  # Validate group names follow conventions
+  validate_group_names: true
+  
+  # Maximum hosts per group (split if exceeded)
+  max_hosts_per_group: 50
+
+# Advanced grouping rules
+advanced_rules:
+  
+  # Conditional grouping based on multiple criteria
+  conditional_groups:
+    
+    # High capacity servers in production
+    high_capacity_production:
+      enabled: true
+      conditions:
+        - field: server_capacity
+          operator: ">="
+          value: 200
+        - field: environment
+          operator: "=="
+          value: "production"
+      group_name: "high_capacity_production"
+    
+    # Multi-protocol servers
+    multi_protocol_servers:
+      enabled: true
+      conditions:
+        - field: server_protocols
+          operator: "length"
+          value: 2  # Has 2 or more protocols
+      group_name: "multi_protocol_servers"
+    
+    # Critical infrastructure servers
+    critical_servers:
+      enabled: true
+      conditions:
+        - field: server_type
+          operator: "in"
+          value: ["high_performance", "dedicated"]
+        - field: environment
+          operator: "=="
+          value: "production"
+      group_name: "critical_servers"
+  
+  # Dynamic group creation based on tags
+  tag_based_groups:
+    enabled: true
+    tag_patterns:
+      - tag: "Project"
+        prefix: "project_"
+        transform: "lowercase"
+      - tag: "Team"
+        prefix: "team_"
+        transform: "lowercase"
+      - tag: "Cost-Center"
+        prefix: "cost_center_"
+        transform: "lowercase"
+
+# Output configuration
+output:
+  
+  # Include metadata in output
+  include_metadata: true
+  
+  # Include group descriptions
+  include_descriptions: true
+  
+  # Include variable inheritance information
+  include_inheritance: false
+  
+  # Format for group names
+  group_name_format: "snake_case"  # snake_case, kebab-case, camelCase
+  
+  # Sort order for groups in output
+  group_sort_order:
+    - vpn_servers
+    - wireguard_servers
+    - openvpn_servers
+    - amneziawg_servers
+    - europe
+    - north_america
+    - asia_pacific
+    - south_america

@@ -1,0 +1,270 @@
+---
+- name: VPN Server Provisioning and Initial Setup
+  hosts: "{{ target_hosts | default('vpn_servers') }}"
+  become: yes
+  gather_facts: yes
+  vars:
+    # Server provisioning configuration
+    server_region: "{{ region | default('europe') }}"
+    server_protocols: "{{ protocols | default(['wireguard']) }}"
+    server_capacity: "{{ capacity | default(100) }}"
+    
+    # Validation settings
+    provisioning_timeout: 300
+    health_check_retries: 5
+    health_check_delay: 30
+    
+    # Backup settings for rollback
+    backup_configs: true
+    rollback_on_failure: true
+
+  pre_tasks:
+    - name: Validate server requirements
+      block:
+        - name: Check if server is reachable
+          wait_for_connection:
+            timeout: "{{ provisioning_timeout }}"
+          register: connection_check
+
+        - name: Gather system information
+          setup:
+          register: system_facts
+
+        - name: Validate minimum system requirements
+          assert:
+            that:
+              - ansible_memtotal_mb >= 1024
+              - ansible_processor_vcpus >= 1
+              - ansible_architecture in ['x86_64', 'aarch64']
+            fail_msg: "Server does not meet minimum requirements (1GB RAM, 1 vCPU)"
+
+        - name: Check disk space requirements
+          assert:
+            that:
+              - item.size_available > 5368709120  # 5GB in bytes
+            fail_msg: "Insufficient disk space on {{ item.mount }}"
+          loop: "{{ ansible_mounts }}"
+          when: item.mount == '/'
+
+        - name: Validate network connectivity
+          uri:
+            url: "https://{{ item }}"
+            method: HEAD
+            timeout: 10
+          loop:
+            - "google.com"
+            - "github.com"
+          register: network_check
+          failed_when: false
+
+        - name: Ensure internet connectivity
+          assert:
+            that:
+              - network_check.results | selectattr('status', 'defined') | selectattr('status', 'equalto', 200) | list | length > 0
+            fail_msg: "Server has no internet connectivity"
+
+      rescue:
+        - name: Log provisioning failure
+          debug:
+            msg: "Server provisioning failed during validation phase"
+        
+        - name: Fail provisioning
+          fail:
+            msg: "Server validation failed, aborting provisioning"
+
+    - name: Initialize server metadata
+      set_fact:
+        server_metadata:
+          provisioned_at: "{{ ansible_date_time.iso8601 }}"
+          provisioned_by: "{{ ansible_user_id }}"
+          region: "{{ server_region }}"
+          protocols: "{{ server_protocols }}"
+          capacity: "{{ server_capacity }}"
+          ansible_version: "{{ ansible_version.full }}"
+
+  tasks:
+    - name: Create server provisioning directory
+      file:
+        path: /opt/vpn-provisioning
+        state: directory
+        mode: '0755'
+
+    - name: Store server metadata
+      copy:
+        content: "{{ server_metadata | to_nice_json }}"
+        dest: /opt/vpn-provisioning/server-metadata.json
+        mode: '0644'
+
+    - name: System preparation and hardening
+      block:
+        - name: Update package cache
+          apt:
+            update_cache: yes
+            cache_valid_time: 3600
+          when: ansible_os_family == "Debian"
+
+        - name: Install essential packages
+          package:
+            name:
+              - curl
+              - wget
+              - unzip
+              - htop
+              - iotop
+              - net-tools
+              - tcpdump
+              - iptables-persistent
+              - fail2ban
+              - ufw
+            state: present
+
+        - name: Configure timezone
+          timezone:
+            name: "{{ server_timezone | default('UTC') }}"
+
+        - name: Configure NTP synchronization
+          systemd:
+            name: systemd-timesyncd
+            enabled: yes
+            state: started
+
+    - name: Apply security hardening
+      include_role:
+        name: ssh_hardening
+      vars:
+        ssh_hardening_enabled: true
+
+    - name: Configure firewall
+      include_role:
+        name: ufw
+      vars:
+        ufw_enabled: true
+        ufw_default_incoming: deny
+        ufw_default_outgoing: allow
+
+    - name: Install and configure monitoring agents
+      block:
+        - name: Install node_exporter
+          include_role:
+            name: node_exporter
+
+        - name: Install promtail for log shipping
+          include_role:
+            name: promtail
+
+    - name: Configure VPN protocols
+      block:
+        - name: Install WireGuard
+          include_role:
+            name: wireguard
+          when: "'wireguard' in server_protocols"
+
+        - name: Install AmneziaWG
+          include_role:
+            name: amneziawg
+          when: "'amneziawg' in server_protocols"
+
+        - name: Install OpenVPN
+          include_role:
+            name: openvpn
+          when: "'openvpn' in server_protocols"
+
+    - name: Install security monitoring
+      block:
+        - name: Install CrowdSec agent
+          include_role:
+            name: crowdsec
+          vars:
+            crowdsec_mode: agent
+
+        - name: Configure Fail2Ban
+          include_role:
+            name: fail2ban
+
+    - name: Post-provisioning validation
+      block:
+        - name: Wait for services to start
+          wait_for:
+            port: "{{ item }}"
+            host: "{{ ansible_default_ipv4.address }}"
+            timeout: 60
+          loop:
+            - 22    # SSH
+            - 9100  # node_exporter
+          ignore_errors: yes
+
+        - name: Validate VPN service installation
+          systemd:
+            name: "{{ item }}"
+          register: service_status
+          loop:
+            - "wg-quick@wg0"
+            - "openvpn@server"
+          when: 
+            - (item == "wg-quick@wg0" and "wireguard" in server_protocols) or
+              (item == "openvpn@server" and "openvpn" in server_protocols)
+          ignore_errors: yes
+
+        - name: Run health check
+          include_tasks: tasks/server-health-check.yml
+
+        - name: Mark server as provisioned
+          lineinfile:
+            path: /opt/vpn-provisioning/status
+            line: "PROVISIONED={{ ansible_date_time.iso8601 }}"
+            create: yes
+
+  post_tasks:
+    - name: Generate provisioning report
+      template:
+        src: templates/provisioning-report.j2
+        dest: "/tmp/provisioning-report-{{ inventory_hostname }}.txt"
+      delegate_to: localhost
+
+    - name: Display provisioning summary
+      debug:
+        msg: |
+          Server {{ inventory_hostname }} provisioning completed successfully:
+          - Region: {{ server_region }}
+          - Protocols: {{ server_protocols | join(', ') }}
+          - Capacity: {{ server_capacity }} connections
+          - IP Address: {{ ansible_default_ipv4.address }}
+          - Provisioned at: {{ server_metadata.provisioned_at }}
+
+  handlers:
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted
+
+    - name: restart ufw
+      systemd:
+        name: ufw
+        state: restarted
+
+  rescue:
+    - name: Provisioning failure cleanup
+      block:
+        - name: Log failure details
+          debug:
+            msg: "Provisioning failed for {{ inventory_hostname }}"
+
+        - name: Create failure report
+          copy:
+            content: |
+              Provisioning failed for {{ inventory_hostname }}
+              Timestamp: {{ ansible_date_time.iso8601 }}
+              Error: {{ ansible_failed_result.msg | default('Unknown error') }}
+            dest: "/tmp/provisioning-failure-{{ inventory_hostname }}.txt"
+          delegate_to: localhost
+
+        - name: Mark server as failed
+          lineinfile:
+            path: /opt/vpn-provisioning/status
+            line: "FAILED={{ ansible_date_time.iso8601 }}"
+            create: yes
+          ignore_errors: yes
+
+        - name: Rollback if requested
+          include_tasks: tasks/server-rollback.yml
+          when: rollback_on_failure | bool

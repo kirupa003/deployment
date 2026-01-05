@@ -1,0 +1,52 @@
+---
+- name: Generate CoreDNS configuration file
+  template:
+    src: Corefile.j2
+    dest: "{{ coredns_config_dir }}/Corefile"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0644'
+    backup: yes
+  become: yes
+  notify: reload coredns
+
+- name: Create CoreDNS environment file
+  template:
+    src: coredns.env.j2
+    dest: "{{ coredns_config_dir }}/coredns.env"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0640'
+  become: yes
+  notify: restart coredns
+
+- name: Create CoreDNS systemd service file
+  template:
+    src: coredns.service.j2
+    dest: /etc/systemd/system/coredns.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: yes
+  notify: restart coredns
+
+- name: Create DNS query analytics configuration
+  template:
+    src: analytics.conf.j2
+    dest: "{{ coredns_config_dir }}/analytics.conf"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0644'
+  become: yes
+  when: coredns_analytics_enabled | bool
+  notify: reload coredns
+
+- name: Create custom DNS records file
+  template:
+    src: custom.db.j2
+    dest: "{{ coredns_config_dir }}/custom.db"
+    owner: "{{ coredns_user }}"
+    group: "{{ coredns_group }}"
+    mode: '0644'
+  become: yes
+  notify: reload coredns

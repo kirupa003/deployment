@@ -1,0 +1,55 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Log Analysis",
+    "tags": ["logs", "analysis", "loki"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "{{ monitoring_dashboard_refresh_interval }}",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Logs",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{job=\"system\"}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 12, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "VPN Logs",
+        "type": "logs",
+        "targets": [
+          {
+            "expr": "{job=\"wireguard\"} or {job=\"openvpn\"}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 12, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Log Volume by Source",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "sum by (job) (rate(promtail_read_lines_total[5m]))",
+            "refId": "A",
+            "legendFormat": "{{ '{{' }} job {{ '}}' }}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12}
+      }
+    ],
+    "schemaVersion": 30,
+    "version": 1
+  }
+}

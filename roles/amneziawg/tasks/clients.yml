@@ -1,0 +1,76 @@
+---
+# AmneziaWG Client Management
+
+- name: Create client management directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - "{{ client_config_dir }}/active"
+    - "{{ client_config_dir }}/revoked"
+    - "{{ client_qr_dir }}"
+
+- name: Create client database file
+  copy:
+    content: |
+      # AmneziaWG Client Database
+      # Format: client_name,public_key,private_key,ip_address,created_date,status
+    dest: "{{ client_config_dir }}/clients.db"
+    owner: root
+    group: root
+    mode: '0600'
+    force: false
+  become: true
+
+- name: Create client IP allocation tracking
+  copy:
+    content: |
+      # IP Address Allocation Tracking
+      # Format: ip_address,client_name,allocated_date,status
+      {{ amneziawg_server_ip }},server,{{ ansible_date_time.iso8601 }},reserved
+    dest: "{{ client_config_dir }}/ip_allocations.db"
+    owner: root
+    group: root
+    mode: '0644'
+    force: false
+  become: true
+
+- name: Create client management scripts
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+  loop:
+    - src: add-client.sh.j2
+      dest: /usr/local/bin/awg-add-client
+    - src: remove-client.sh.j2
+      dest: /usr/local/bin/awg-remove-client
+    - src: list-clients.sh.j2
+      dest: /usr/local/bin/awg-list-clients
+    - src: generate-qr.sh.j2
+      dest: /usr/local/bin/awg-generate-qr
+
+- name: Create client configuration backup script
+  template:
+    src: backup-clients.sh.j2
+    dest: /usr/local/bin/awg-backup-clients
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Setup client configuration backup cron job
+  cron:
+    name: "AmneziaWG client backup"
+    minute: "0"
+    hour: "4"
+    job: "/usr/local/bin/awg-backup-clients"
+    user: root
+  become: true

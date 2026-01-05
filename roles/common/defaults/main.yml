@@ -1,0 +1,21 @@
+---
+# Default variables for common role
+
+timezone: UTC
+locale: en_US.UTF-8
+
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+  - 2.pool.ntp.org
+  - 3.pool.ntp.org
+
+packages_common:
+  - vim
+  - htop
+  - curl
+  - wget
+  - git
+  - jq
+  - unzip
+  - net-tools

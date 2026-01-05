@@ -1,0 +1,65 @@
+---
+- name: Check promtail service status
+  systemd:
+    name: promtail
+  register: promtail_service_status
+  become: true
+
+- name: Verify promtail is running
+  assert:
+    that:
+      - promtail_service_status.status.ActiveState == "active"
+      - promtail_service_status.status.SubState == "running"
+    fail_msg: "Promtail service is not running properly"
+    success_msg: "Promtail service is running correctly"
+
+- name: Test promtail metrics endpoint
+  uri:
+    url: "http://{{ promtail_listen_address }}:{{ promtail_port }}/metrics"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: promtail_metrics_test
+  retries: 3
+  delay: 5
+
+- name: Verify promtail metrics are available
+  assert:
+    that:
+      - "'promtail_' in promtail_metrics_test.content"
+    fail_msg: "Promtail metrics are not available"
+    success_msg: "Promtail is exposing metrics correctly"
+
+- name: Test promtail ready endpoint
+  uri:
+    url: "http://{{ promtail_listen_address }}:{{ promtail_port }}/ready"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: promtail_ready_test
+  retries: 3
+  delay: 5
+
+- name: Check promtail configuration
+  command: "{{ promtail_binary_path }} -config.file={{ promtail_config_dir }}/promtail.yml -dry-run"
+  register: promtail_config_check
+  changed_when: false
+  become: true
+  become_user: "{{ promtail_user }}"
+
+- name: Verify configuration is valid
+  assert:
+    that:
+      - promtail_config_check.rc == 0
+    fail_msg: "Promtail configuration is invalid: {{ promtail_config_check.stderr }}"
+    success_msg: "Promtail configuration is valid"
+
+- name: Display promtail status
+  debug:
+    msg:
+      - "Promtail Status: {{ promtail_service_status.status.ActiveState }}"
+      - "Promtail Version: {{ promtail_version }}"
+      - "Metrics Endpoint: http://{{ ansible_default_ipv4.address }}:{{ promtail_port }}/metrics"
+      - "Loki URL: {{ promtail_loki_url }}"
+      - "Scrape Jobs: {{ promtail_scrape_configs | length }}"
+      - "Positions File: {{ promtail_positions_file }}"

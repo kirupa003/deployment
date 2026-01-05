@@ -1,0 +1,148 @@
+---
+- name: Deploy comprehensive security and threat protection systems
+  hosts: vpn_servers
+  become: true
+  gather_facts: true
+  serial: "{{ batch_size | default(10) }}"
+  
+  vars:
+    # Security deployment configuration
+    security_deployment_mode: "production"
+    security_validation_enabled: true
+    
+  pre_tasks:
+    - name: Verify system requirements
+      assert:
+        that:
+          - ansible_os_family == "Debian"
+          - ansible_distribution_major_version | int >= 20
+        fail_msg: "This playbook requires Ubuntu 20.04+ or Debian 10+"
+        success_msg: "System requirements verified"
+      tags: always
+
+    - name: Update package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+      tags: always
+
+  roles:
+    # SSH Hardening - Requirement 3.1
+    - role: ssh_hardening
+      tags:
+        - security
+        - ssh_hardening
+        - requirement_3_1
+      vars:
+        ssh_permit_root_login: "no"
+        ssh_password_authentication: "no"
+        ssh_pubkey_authentication: "yes"
+        ssh_max_auth_tries: 3
+        ssh_fail2ban_enabled: true
+
+    # UFW Firewall - Requirement 3.2  
+    - role: ufw
+      tags:
+        - security
+        - firewall
+        - ufw
+        - requirement_3_2
+      vars:
+        ufw_default_input_policy: deny
+        ufw_default_output_policy: allow
+        ufw_default_forward_policy: deny
+        ufw_ssh_rule: allow
+        ufw_ssh_port: "{{ ansible_port | default('22') }}"
+        ufw_rate_limit_enabled: true
+
+    # Fail2Ban - Requirement 3.3
+    - role: fail2ban
+      tags:
+        - security
+        - fail2ban
+        - brute_force_protection
+        - requirement_3_3
+      vars:
+        fail2ban_ssh_enabled: true
+        fail2ban_ssh_maxretry: 3
+        fail2ban_ssh_bantime: 7200
+        fail2ban_openvpn_enabled: "{{ 'openvpn' in group_names }}"
+        fail2ban_wireguard_enabled: "{{ 'wireguard_servers' in group_names }}"
+
+    # CrowdSec - Requirement 3.3
+    - role: crowdsec
+      tags:
+        - security
+        - crowdsec
+        - collaborative_security
+        - requirement_3_3
+      vars:
+        crowdsec_lapi_enabled: "{{ inventory_hostname == groups['vpn_servers'][0] }}"
+        crowdsec_central_api_enabled: true
+        crowdsec_firewall_integration: true
+        crowdsec_prometheus_enabled: true
+
+  post_tasks:
+    - name: Verify security services are running
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - ssh
+        - ufw
+        - fail2ban
+        - crowdsec
+      tags: validation
+
+    - name: Test SSH configuration
+      command: sshd -t
+      changed_when: false
+      tags: validation
+
+    - name: Verify UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+      tags: validation
+
+    - name: Display UFW status
+      debug:
+        var: ufw_status.stdout_lines
+      tags: validation
+
+    - name: Verify CrowdSec LAPI connectivity
+      uri:
+        url: "http://localhost:{{ crowdsec_lapi_port | default(8080) }}/v1/heartbeat"
+        method: GET
+        status_code: 200
+      when: crowdsec_lapi_enabled | default(false)
+      tags: validation
+
+    - name: Generate security deployment report
+      template:
+        src: security-deployment-report.j2
+        dest: "/var/log/security-deployment-{{ ansible_date_time.epoch }}.log"
+        mode: '0644'
+      tags: reporting
+
+  handlers:
+    - name: restart ssh
+      service:
+        name: ssh
+        state: restarted
+
+    - name: restart ufw
+      service:
+        name: ufw
+        state: restarted
+
+    - name: restart fail2ban
+      service:
+        name: fail2ban
+        state: restarted
+
+    - name: restart crowdsec
+      service:
+        name: crowdsec
+        state: restarted

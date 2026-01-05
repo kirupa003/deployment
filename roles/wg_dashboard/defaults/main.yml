@@ -1,0 +1,95 @@
+---
+# WireGuard Dashboard Configuration
+# Reference: https://wgdashboard.dev/
+
+# Docker images
+wg_dashboard_image: "ghcr.io/wgdashboard/wgdashboard:latest"
+wg_dashboard_version: "4.1"
+
+# Dashboard settings
+wg_dashboard_data_dir: /opt/wg-dashboard
+wg_dashboard_port: 10086
+wg_dashboard_url: "0.0.0.0"
+wg_dashboard_admin_user: "admin"
+wg_dashboard_admin_password: "{{ vault_wg_dashboard_password | default('changeme') }}"
+
+# Security settings
+wg_dashboard_enable_totp: true
+wg_dashboard_totp_key: "{{ vault_wg_dashboard_totp_key | default('') }}"
+
+# Timezone
+wg_dashboard_timezone: "UTC"
+
+# DNS for VPN clients
+wg_dashboard_global_dns: "1.1.1.1"
+
+# Public IP (auto-detected if empty)
+wg_dashboard_public_ip: ""
+
+# Auto-start WireGuard interfaces
+wg_dashboard_wg_autostart: true
+
+# Firewall settings
+wg_dashboard_firewall_restrict: true
+wg_dashboard_allowed_network: "10.0.0.0/8"
+
+# WireGuard settings
+wg_interface: wg0
+wg_listen_port: 51820
+wg_server_address: "10.66.66.1/24"
+wg_server_address_v6: "fd42:42:42::1/64"
+wg_external_interface: "{{ ansible_default_ipv4.interface }}"
+wg_mtu: 1420
+wg_save_config: true
+
+# Peer defaults
+wg_peer_dns: "{{ wg_server_address | regex_replace('/.*', '') }}"  # Use CoreDNS
+wg_peer_allowed_ips: "0.0.0.0/0, ::/0"
+wg_persistent_keepalive: 25
+
+# IPv6
+wg_ipv6_enabled: false
+
+# ============================================
+# AmneziaWG Obfuscation Settings
+# Reference: https://github.com/amnezia-vpn/amneziawg-linux-kernel-module
+# ============================================
+amneziawg_enabled: "{{ vpn_protocol == 'amneziawg' }}"
+amneziawg_listen_port: 51821
+
+# Junk packets (makes traffic look random)
+amneziawg_jc: 4        # Junk packet count
+amneziawg_jmin: 40     # Junk packet min size
+amneziawg_jmax: 70     # Junk packet max size
+
+# Init packet sizes
+amneziawg_s1: 0        # Init packet junk size
+amneziawg_s2: 0        # Response packet junk size
+
+# Magic headers (obfuscate protocol fingerprint)
+amneziawg_h1: 1        # Init packet magic header
+amneziawg_h2: 2        # Response packet magic header
+amneziawg_h3: 3        # Underload packet magic header
+amneziawg_h4: 4        # Transport packet magic header
+
+# ============================================
+# Email Notifications (Optional)
+# ============================================
+wg_dashboard_email_enabled: false
+wg_dashboard_email_server: ""
+wg_dashboard_email_port: 587
+wg_dashboard_email_encryption: "STARTTLS"
+wg_dashboard_email_username: ""
+wg_dashboard_email_password: ""
+wg_dashboard_email_from: ""
+
+# ============================================
+# Database Configuration
+# WG Dashboard uses SQLite by default (stored in data volume)
+# All peer configs, settings, and logs are stored here
+# ============================================
+wg_dashboard_db_path: "{{ wg_dashboard_data_dir }}/data"
+
+# Volume paths
+wg_dashboard_conf_path: "{{ wg_dashboard_data_dir }}/conf"       # WireGuard configs
+wg_dashboard_aconf_path: "{{ wg_dashboard_data_dir }}/aconf"     # AmneziaWG configs

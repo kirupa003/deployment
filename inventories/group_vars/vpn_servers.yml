@@ -1,0 +1,42 @@
+---
+# Common configuration for all VPN servers
+
+# VPN Server Configuration
+vpn_server_role: true
+max_concurrent_connections: 1000
+bandwidth_limit_mbps: 1000
+
+# DNS Configuration
+dns_servers:
+  - 1.1.1.1
+  - 8.8.8.8
+  - 9.9.9.9
+
+# CoreDNS Configuration
+coredns_enabled: true
+coredns_port: 53
+coredns_admin_port: 9153
+ad_blocking_enabled: true
+ad_block_lists:
+  - https://raw.githubusercontent.com/AdguardTeam/AdguardFilters/master/BaseFilter/sections/adservers.txt
+  - https://someonewhocares.org/hosts/zero/hosts
+
+# Monitoring Configuration
+monitoring_enabled: true
+metrics_retention_days: 90
+log_shipping_enabled: true
+
+# Security Configuration
+crowdsec_enabled: true
+fail2ban_enabled: true
+ssh_hardening_enabled: true
+
+# Backup Configuration
+backup_enabled: true
+backup_retention_days: 7
+backup_schedule: "0 2 * * *"  # Daily at 2 AM
+
+# Performance Tuning
+kernel_optimization: true
+network_optimization: true
+tcp_bbr_enabled: true

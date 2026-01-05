@@ -1,0 +1,22 @@
+---
+- name: Allow node_exporter port through UFW
+  ufw:
+    rule: allow
+    port: "{{ node_exporter_port }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: "Node Exporter metrics"
+  loop: "{{ node_exporter_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Allow node_exporter port through firewalld
+  firewalld:
+    port: "{{ node_exporter_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+    source: "{{ item }}"
+  loop: "{{ node_exporter_firewall_source_ranges }}"
+  become: true
+  when: ansible_facts['os_family'] == "RedHat"

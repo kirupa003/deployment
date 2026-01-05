@@ -1,0 +1,22 @@
+---
+# Cloudflare Tunnel Docker Compose
+# Managed by Ansible
+
+version: '3.8'
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-{{ cloudflare_tunnel_name }}
+    restart: unless-stopped
+    command: tunnel run --token {{ cloudflare_tunnel_token }}
+    network_mode: host
+    environment:
+      - TUNNEL_LOGLEVEL={{ cloudflared_log_level }}
+{% if cloudflared_metrics_enabled %}
+      - TUNNEL_METRICS=127.0.0.1:{{ cloudflared_metrics_port }}
+{% endif %}
+    volumes:
+      - {{ cloudflared_config_dir }}:/etc/cloudflared:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

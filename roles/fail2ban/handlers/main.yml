@@ -1,0 +1,26 @@
+---
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+    daemon_reload: true
+  become: true
+
+- name: reload fail2ban
+  systemd:
+    name: fail2ban
+    state: reloaded
+  become: true
+
+- name: start fail2ban
+  systemd:
+    name: fail2ban
+    state: started
+    enabled: true
+  become: true
+
+- name: stop fail2ban
+  systemd:
+    name: fail2ban
+    state: stopped
+  become: true

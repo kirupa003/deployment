@@ -1,0 +1,372 @@
+name: VPN Infrastructure CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      deployment_type:
+        description: 'Deployment type'
+        required: true
+        default: 'validation'
+        type: choice
+        options:
+        - validation
+        - partial
+        - full
+  schedule:
+    # Daily health check at 6 AM UTC
+    - cron: '0 6 * * *'
+    # Weekly drift detection on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+env:
+  ANSIBLE_HOST_KEY_CHECKING: False
+  ANSIBLE_STDOUT_CALLBACK: yaml
+  ANSIBLE_FORCE_COLOR: true
+
+jobs:
+  # Validation and Testing
+  validate:
+    name: Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml netaddr
+        ansible-galaxy install -r requirements.yml
+
+    - name: Validate YAML syntax
+      run: |
+        find . -name "*.yml" -o -name "*.yaml" | xargs -I {} ansible-playbook --syntax-check {}
+
+    - name: Validate inventory
+      run: |
+        python scripts/validate-inventory.py
+        ansible-inventory --list > /dev/null
+
+    - name: Validate configuration
+      run: |
+        python scripts/validate-configuration.py
+
+    - name: Lint Ansible playbooks
+      run: |
+        pip install ansible-lint
+        ansible-lint playbooks/
+
+    - name: Security scan
+      run: |
+        pip install bandit safety
+        bandit -r scripts/ -f json -o bandit-report.json || true
+        safety check --json --output safety-report.json || true
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  # Documentation Generation
+  documentation:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml
+
+    - name: Generate documentation
+      run: |
+        python scripts/generate-documentation.py --type all
+
+    - name: Upload documentation
+      uses: actions/upload-artifact@v3
+      with:
+        name: generated-docs
+        path: docs/
+
+    - name: Deploy documentation to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
+
+  # Configuration Testing
+  test-configuration:
+    name: Test Configuration Generation
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      matrix:
+        environment: [staging, production]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml
+
+    - name: Generate configurations for ${{ matrix.environment }}
+      run: |
+        ansible-playbook playbooks/generate-configurations.yml \
+          --extra-vars "environment_name=${{ matrix.environment }}" \
+          --check
+
+    - name: Validate generated configurations
+      run: |
+        python scripts/validate-configuration.py --path generated-configs/
+
+  # Staging Deployment
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate, test-configuration]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml netaddr
+        ansible-galaxy install -r requirements.yml
+
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/ansible_rsa
+        chmod 600 ~/.ssh/ansible_rsa
+        ssh-keyscan -H ${{ secrets.STAGING_SERVERS }} >> ~/.ssh/known_hosts
+
+    - name: Set up Ansible Vault
+      run: |
+        echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
+        chmod 600 .vault_pass
+
+    - name: Run health check
+      run: |
+        ansible-playbook playbooks/health-check.yml \
+          --inventory inventories/staging \
+          --limit staging_servers
+
+    - name: Deploy configuration changes
+      run: |
+        ansible-playbook playbooks/multi-protocol-deployment.yml \
+          --inventory inventories/staging \
+          --limit staging_servers \
+          --extra-vars "deployment_type=${{ github.event.inputs.deployment_type || 'validation' }}" \
+          --check
+
+    - name: Validate deployment
+      run: |
+        ansible-playbook playbooks/server-health-validation.yml \
+          --inventory inventories/staging \
+          --limit staging_servers
+
+  # Production Deployment
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, test-configuration, deploy-staging]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml netaddr
+        ansible-galaxy install -r requirements.yml
+
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/ansible_rsa
+        chmod 600 ~/.ssh/ansible_rsa
+        ssh-keyscan -H ${{ secrets.PRODUCTION_SERVERS }} >> ~/.ssh/known_hosts
+
+    - name: Set up Ansible Vault
+      run: |
+        echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
+        chmod 600 .vault_pass
+
+    - name: Create configuration backup
+      run: |
+        ./scripts/backup-configuration.sh backup
+
+    - name: Pre-deployment health check
+      run: |
+        ansible-playbook playbooks/health-check.yml \
+          --inventory inventories/production \
+          --limit vpn_servers
+
+    - name: Deploy with rolling update
+      run: |
+        ansible-playbook playbooks/multi-protocol-deployment.yml \
+          --inventory inventories/production \
+          --limit vpn_servers \
+          --extra-vars "serial=5 deployment_type=${{ github.event.inputs.deployment_type || 'validation' }}"
+
+    - name: Post-deployment validation
+      run: |
+        ansible-playbook playbooks/server-health-validation.yml \
+          --inventory inventories/production \
+          --limit vpn_servers
+
+    - name: Security audit
+      run: |
+        ansible-playbook playbooks/security-audit.yml \
+          --inventory inventories/production \
+          --limit vpn_servers
+
+  # Drift Detection
+  drift-detection:
+    name: Configuration Drift Detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible jinja2 pyyaml
+
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/ansible_rsa
+        chmod 600 ~/.ssh/ansible_rsa
+
+    - name: Set up Ansible Vault
+      run: |
+        echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
+        chmod 600 .vault_pass
+
+    - name: Detect configuration drift
+      run: |
+        ansible-playbook playbooks/multi-protocol-deployment.yml \
+          --inventory inventories/production \
+          --limit vpn_servers \
+          --check \
+          --diff > drift-report.txt
+
+    - name: Upload drift report
+      uses: actions/upload-artifact@v3
+      with:
+        name: drift-report
+        path: drift-report.txt
+
+    - name: Notify on drift detection
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        text: "Configuration drift detected in production environment"
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Scheduled Health Checks
+  health-check:
+    name: Scheduled Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Ansible
+      run: |
+        python -m pip install --upgrade pip
+        pip install ansible
+
+    - name: Configure SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.ANSIBLE_SSH_PRIVATE_KEY }}" > ~/.ssh/ansible_rsa
+        chmod 600 ~/.ssh/ansible_rsa
+
+    - name: Run health check
+      run: |
+        ansible-playbook playbooks/health-check.yml \
+          --inventory inventories/production \
+          --limit vpn_servers
+
+    - name: Generate health report
+      run: |
+        ansible-playbook playbooks/server-health-validation.yml \
+          --inventory inventories/production \
+          --limit vpn_servers \
+          --extra-vars "output_format=json" > health-report.json
+
+    - name: Upload health report
+      uses: actions/upload-artifact@v3
+      with:
+        name: health-report
+        path: health-report.json
+

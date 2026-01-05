@@ -1,0 +1,79 @@
+---
+# WireGuard Firewall Configuration
+
+- name: Install UFW firewall
+  apt:
+    name: ufw
+    state: present
+  become: true
+
+- name: Reset UFW to defaults
+  ufw:
+    state: reset
+  become: true
+
+- name: Set UFW default policies
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  become: true
+  loop:
+    - { direction: 'incoming', policy: 'deny' }
+    - { direction: 'outgoing', policy: 'allow' }
+    - { direction: 'routed', policy: 'allow' }
+
+- name: Allow SSH access
+  ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+  become: true
+
+- name: Allow WireGuard port
+  ufw:
+    rule: allow
+    port: "{{ wireguard_port }}"
+    proto: udp
+  become: true
+
+- name: Allow WireGuard dashboard port
+  ufw:
+    rule: allow
+    port: "{{ wg_dashboard_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  become: true
+  loop: "{{ management_networks | default(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']) }}"
+  when: wg_dashboard_enabled
+
+- name: Configure NAT rules for WireGuard
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - WireGuard NAT"
+    insertbefore: "# Don't delete these required lines"
+    block: |
+      # NAT table rules for WireGuard
+      *nat
+      :POSTROUTING ACCEPT [0:0]
+      # Allow traffic from WireGuard clients to the internet
+      -A POSTROUTING -s {{ wireguard_network }} -o {{ wireguard_forward_interface }} -j MASQUERADE
+      COMMIT
+  become: true
+  notify: restart ufw
+
+- name: Configure forwarding rules
+  blockinfile:
+    path: /etc/ufw/before.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - WireGuard Forward"
+    insertafter: "# End required lines"
+    block: |
+      # Allow forwarding for WireGuard
+      -A ufw-before-forward -s {{ wireguard_network }} -j ACCEPT
+      -A ufw-before-forward -d {{ wireguard_network }} -j ACCEPT
+  become: true
+  notify: restart ufw
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  become: true

@@ -1,0 +1,44 @@
+---
+# WireGuard-specific configuration
+
+# WireGuard Configuration
+wireguard_enabled: true
+wireguard_port: 51820
+wireguard_interface: wg0
+wireguard_network: 10.10.0.0/24
+wireguard_dns: 10.10.0.1
+
+# WireGuard Dashboard Configuration
+wg_dashboard_enabled: true
+wg_dashboard_port: 10086
+wg_dashboard_admin_user: admin
+wg_dashboard_theme: dark
+
+# AmneziaWG Configuration (obfuscated WireGuard)
+amneziawg_enabled: false
+amneziawg_port: 51821
+amneziawg_obfuscation: true
+
+# Client Management
+max_clients: 500
+client_subnet: 10.10.0.0/24
+client_ip_range_start: 10.10.0.10
+client_ip_range_end: 10.10.0.254
+
+# Key Management
+key_rotation_days: 90
+automatic_key_rotation: true
+
+# Performance Settings
+wireguard_mtu: 1420
+wireguard_persistent_keepalive: 25
+
+# Firewall Rules
+wireguard_firewall_rules:
+  - port: "{{ wireguard_port }}"
+    protocol: udp
+    rule: allow
+  - port: "{{ wg_dashboard_port }}"
+    protocol: tcp
+    rule: allow
+    src: "{{ management_networks }}"

@@ -1,0 +1,23 @@
+---
+galaxy_info:
+  author: VPN Infrastructure Team
+  description: Ansible role for deploying Prometheus node_exporter for system metrics collection
+  company: VPN Infrastructure Project
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+  galaxy_tags:
+    - monitoring
+    - prometheus
+    - metrics
+    - node_exporter
+
+dependencies: []
